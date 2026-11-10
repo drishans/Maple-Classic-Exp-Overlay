@@ -239,18 +239,15 @@ for name, bad in (("not a dict", [1, 2]), ("a bad key", {"big": [1, 2, 3, 4]}), 
                   ("floats", {"1920x1080/11": [1, 2, 3, 4.5]}), ("too many", {f"{1000 + i}x700/9": [1, 2, 3, 4] for i in range(9)})):
     m.CONFIG_PATH.write_text(json.dumps({"exp_v2_spots": bad}))
     check(f"a damaged exp_v2_spots ({name}) is dropped", "exp_v2_spots" not in m.load_config())
-# A07-1: a null is not "answered": the one-time questions must come back, not be skipped for good
-for key in ("share_runs", "share_health", "health_id", "reports_sent", "exp_v2_spots"):
-    m.CONFIG_PATH.write_text(json.dumps({key: None, "ui_scale": 150, "share_health" if key != "share_health" else "share_runs": True}))
-    cfg = m.load_config()
-    check(f"a null {key} in the settings file counts as missing (the question is asked again), other keys stay",
-          key not in cfg and cfg["ui_scale"] == 150)
-for name, bad in (("a string", "x"), ("a 2 MB string", "a" * 2_000_000), ("a list", [1]), ("negative n", {"day": "d", "n": -1}),
-                  ("n is a float", {"day": "d", "n": 1.5}), ("n is a bool", {"day": "d", "n": True})):
-    for key in ("share_runs", "share_health", "health_id", "reports_sent"):
-        m.CONFIG_PATH.write_text(json.dumps({key: bad, "ui_scale": 150}))
-        cfg = m.load_config()
-        check(f"{key} damaged as {name} is dropped, ui_scale kept", key not in cfg and cfg["ui_scale"] == 150)
+# A07-1: a null is not a value: it counts as missing, other keys stay
+m.CONFIG_PATH.write_text(json.dumps({"exp_v2_spots": None, "ui_scale": 150}))
+cfg = m.load_config()
+check("a null exp_v2_spots in the settings file counts as missing, other keys stay",
+      "exp_v2_spots" not in cfg and cfg["ui_scale"] == 150)
+m.CONFIG_PATH.write_text(json.dumps({"share_runs": True, "share_health": False, "check_updates": True, "ui_scale": 150}))
+cfg = m.load_config()
+check("the original overlay's own answers in the settings file are left alone (this copy doesn't use them)",
+      (cfg["share_runs"], cfg["share_health"], cfg["check_updates"], cfg["ui_scale"]) == (True, False, True, 150))
 check(f"the right OS backend is made for {sys.platform} ({type(m.PLATFORM).__name__})",
       type(m.PLATFORM).__name__ == {"win32": "WindowsPlatform", "darwin": "MacPlatform"}.get(sys.platform))
 try:
@@ -291,64 +288,6 @@ if sys.platform == "darwin":
           and not macos.is_game(W(7, 14, "MapleStory Classic World", "", 101, (0, 0, 200, 100), True), 99))
     check("macOS windows can be listed", isinstance(macos.window_list(), list))
     check("a macOS window that isn't there can't be pictured", m.PLATFORM.capture_window(2 ** 31 - 1, 0, 0, 200, 100) is None)
-check("release notes are shown as plain text, keeping names like exp_log.txt",
-      m._plain_text("**New**\n- **Time** in `exp_log.txt`, see [README](https://x)") == "New\n• Time in exp_log.txt, see README")
-# B06-1: hostile release notes / version names (a broken or tampered GitHub answer) can't freeze or stretch the overlay
-import time as _t
-slow = 0.0
-for hostile in ("[" * 50000, "\n" * 50000, "\r\n" * 25000, "[a](" * 12500):
-    t0 = _t.perf_counter()
-    m._plain_text(hostile)
-    slow = max(slow, _t.perf_counter() - t0)
-check("release notes made of one character repeated 50,000 times are cleaned in well under a second", slow < 1.0)
-check("...and a huge answer is cut before it is cleaned", len(m._plain_text("a" * 10_000_000)) <= 5000)
-# M05: the release body with three files (Windows zip + two .dmg) and the "Check this download" list, as build.yml's release job writes it
-_h = ["a1" * 32, "b2" * 32, "c3" * 32]
-_f = ["Maple-Classic-Exp-Overlay-v0.9.16-beta.zip", "Maple-Classic-Exp-Overlay-v0.9.16-beta-macOS-AppleSilicon.dmg",
-      "Maple-Classic-Exp-Overlay-v0.9.16-beta-macOS-Intel.dmg"]
-_body = ("**What's new**\r\n- **No Reset** keeps your numbers across maps, see [README](https://x/README.md)\r\n"
-         + "- more lines of notes\r\n" * 40
-         + "\r\n**A test download for Mac, not a release.** Not tested by me on a real Mac.\r\n\r\n---\r\n**Check this download**\r\n"
-         + "".join(f"- SHA-256 of {n}: `{h}` (also in SHA256SUMS.txt)\r\n" for n, h in zip(_f, _h))
-         + "- On Windows, in PowerShell: `Get-FileHash .\\<the file>`. On a Mac, in Terminal: `shasum -a 256 <the file>`\r\n"
-         "- Built by GitHub from this tag. Check a file: `gh attestation verify <the file> --repo beanguri/Maple-Classic-Exp-Overlay`\r\n"
-         "- The same files are on [the build's page](https://github.com/beanguri/Maple-Classic-Exp-Overlay/actions/runs/1), where GitHub shows the same SHA-256 for each.")
-_plain = m._plain_text(_body)
-_lines = _plain.split("\n")
-check("a release body with three files shows every file name and its full hash, one per line",
-      all(f"• SHA-256 of {n}: {h} (also in SHA256SUMS.txt)" in _lines for n, h in zip(_f, _h)))
-check("...with no markdown marks (**, backticks, link addresses) left in it",
-      "**" not in _plain and "`" not in _plain and "](" not in _plain and "https://x" not in _plain)
-check("...the commands in it still read right", "Get-FileHash .\\<the file>" in _plain and "shasum -a 256 <the file>" in _plain
-      and "gh attestation verify <the file> --repo beanguri/Maple-Classic-Exp-Overlay" in _plain)
-check("...a Mac test build's note stays in", "A test download for Mac, not a release. Not tested by me on a real Mac." in _lines)
-check("...and the whole check list fits under the 5000-character cut", len(_plain) < 5000 and _lines[-1].startswith("• The same files are on the build's page"))
-
-
-def _update_answer(tag, body="notes"):
-    class Answer:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, n=-1): return json.dumps({"tag_name": tag, "body": body}).encode()
-    return lambda *a, **k: Answer()
-
-
-real_urlopen, real_blocked = m.urllib.request.urlopen, m.sharing_blocked
-m.sharing_blocked = lambda: False
-answers = {}
-try:
-    for tag in ("v0.9.99", "v1.0.0-" + "a" * 200000, "v" + "9" * 30 + ".1.1", "v1.0.0-٣٤", "v1.2.3.4", "v1.0.0-beta.2"):
-        m.urllib.request.urlopen = _update_answer(tag)
-        try:
-            answers[tag[:12]] = m.check_for_update()
-        except ValueError:
-            answers[tag[:12]] = "refused"
-finally:
-    m.urllib.request.urlopen, m.sharing_blocked = real_urlopen, real_blocked
-check("an update answer with a normal version is taken", answers["v0.9.99"] and answers["v0.9.99"][0] == "0.9.99")
-check("...a version name of 200,000 characters, a 30-digit number, non-ASCII digits or four parts is refused (it would stretch the window)",
-      all(answers[k] == "refused" for k in ("v1.0.0-aaaaa", "v99999999999", "v1.0.0-٣٤", "v1.2.3.4")))
-check("...a real pre-release name is still taken", answers["v1.0.0-beta."] and answers["v1.0.0-beta."][0] == "1.0.0-beta.2")
 check("how long each line was measured over", [m.fmt_logged(s) for s in (300.4, 1500, 3900)] == ["5 min", "25 min", "1 h 05 min"]
       and [m.fmt_logged(s, short=True) for s in (300.4, 1500, 3900)] == ["5m", "25m", "1h 05m"])
 
@@ -363,8 +302,6 @@ check("the level comes from the EXP table", m.level_for_req(63666) == 27 and m.l
 # ---- updating: logs and settings from every released version open with nothing lost
 import shutil
 real_config = m.CONFIG_PATH
-HEALTH_FROM = (0, 9, 13)        # the first version that asks about health reports (its fixture has the answer)
-vt = lambda name: tuple(int(x) for x in name.split("-")[0].split("."))
 for old in sorted((Path(__file__).parent / "upgrade").iterdir()):
     folder = Path(tempfile.mkdtemp())
     shutil.copy2(old / "exp_log.json", folder / "log.json")
@@ -381,16 +318,16 @@ for old in sorted((Path(__file__).parent / "upgrade").iterdir()):
           and all(log.sealed(r, m._SEALED_RUN) or r.get("estimated") or r.get("party_unread") or r.get("no_reset") for r in log.runs)   # (their seals are meant not to verify)
           and log.aliases == before["aliases"] and not list(folder.glob("exp_log.damaged-*"))
           and (cfg["pos"], cfg["transparency"], cfg["gap_seconds"], cfg["topmost"]) == ([5300, 800], 30, 20, False))
-    # the health question is still to come (nothing answers it for them), and an answer, once saved, is kept
+    # the original's own answers in the file (sharing, health) are left as they were, for going back to it
     m.CONFIG_PATH = Path(tempfile.mkdtemp()) / "config.json"
     shutil.copy2(old / "config.json", m.CONFIG_PATH)
-    asked_before = ("share_health" not in m.load_config()) == (vt(old.name) < HEALTH_FROM)    # (or answered, from then on)
-    cfg["share_health"] = True
-    m.save_config(cfg)
-    again = m.load_config()
+    raw = json.loads((old / "config.json").read_text(encoding="utf-8"))
+    m.save_config(m.load_config())
+    again = json.loads(m.CONFIG_PATH.read_text(encoding="utf-8"))
     m.CONFIG_PATH = real_config
-    check(f"updating from {old.name}: the health question is asked only if that version never asked it, and an answer is kept",
-          asked_before and again["share_health"] is True and again["gap_seconds"] == cfg["gap_seconds"] and again["pos"] == cfg["pos"])
+    check(f"updating from {old.name}: the original's own answers (sharing, health, update check) are kept as they were",
+          all(again.get(k) == raw[k] for k in ("share_runs", "share_health", "health_id", "check_updates", "skip_version")
+              if k in raw) and again["gap_seconds"] == cfg["gap_seconds"] and again["pos"] == cfg["pos"])
     # ...and carrying on farming afterwards, with the old lines (and any notes on them) left as they were
     farm(log, 0, 310, map_name="Updated Map", level=41)
     after = json.loads((folder / "log.json").read_text(encoding="utf-8"))["entries"]
@@ -500,105 +437,19 @@ after = {x["map"]: x for x in json.loads((folder / "log.json").read_text(encodin
 check("odd notes are left exactly as they were when the log is saved for another reason",
       all("note" in after[f"Map {i}"] and after[f"Map {i}"]["note"] == n for i, n in enumerate(odd)))
 
-# what's shared with the stats site is never made from notes
+# notes never leave the log: runs carry none, the bug report text has none, and nothing goes online
 log, path = new_log()
 farm(log, 0, 910, party=3)                                        # more than a 15-minute run
 log.set_note(log.entries, "MY-PRIVATE-NOTE do not share")
-sent = []
-real_urlopen = m.urllib.request.urlopen
-
-
-class _Reply:                                                     # what the stats site would answer
-    def __init__(self, data):
-        self.data = json.dumps(data).encode()
-
-    def read(self, _=None):
-        return self.data
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        return False
-
-
-def capture(request, *a, **k):
-    sent.append((request.full_url, request.data))
-    return _Reply({"results": [{"started": r.get("started"), "ok": True} for r in log.runs]})
-
-
-os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"                  # (the network is stubbed here)
-m.urllib.request.urlopen = capture
-done = m.post_runs("0" * 16, log.unshared_runs())
-m.urllib.request.urlopen = real_urlopen
-os.environ.pop("MAPLE_EXP_ALLOW_SHARE")
-body = sent[0][1].decode() if sent else ""
-fields = {k for r in json.loads(body)["runs"] for k in r} if body else set()
-check(f"what's sent to the stats site has the run and no note ({sorted(fields)})",
-      len(sent) == 1 and "MY-PRIVATE-NOTE" not in body and "note" not in fields and len(json.loads(body)["runs"]) >= 1)
 check("runs never carry a note, even with notes on the log lines",
       all("note" not in r for r in log.runs) and "MY-PRIVATE-NOTE" not in json.dumps(log.runs))
 src = inspect.getsource(m)
-check("privacy guard: the overlay reaches the internet in exactly these places (a new one needs a look at what it sends)",
-      src.count("urlopen(") == 4 and src.count("webbrowser.open(") == 4 and "requests." not in src and "socket." not in src)
-check("Send report never reads the log, notes or the map",
-      not any(w in inspect.getsource(x) for x in (m.post_report, m.App.send_report, m.App._submit_report, m.App._report_details)
-              for w in ("entries", "autolog", "note_of", "notes_of", '"note"', "map_name")))
-check("the health report sender never reads the log, notes or the map", "entries" not in inspect.getsource(m.post_health)
-      and "autolog" not in inspect.getsource(m.App._count_health) and "map" not in inspect.getsource(m.App._count_health).lower().replace("healthlog", ""))
-check("what's sent never reads the log's lines, and the bug report never includes notes",
-      "entries" not in inspect.getsource(m.post_runs) and "note" not in inspect.getsource(m.post_runs).lower()
-      and "entries" not in inspect.getsource(m.check_for_update)
-      and not any(w in inspect.getsource(m.App._report_text) for w in ("note_of", "notes_of", '"note"', "autolog.entries")))
-runs = [dict(r, note="SNEAKY") for r in log.runs]
-os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"
-m.urllib.request.urlopen = capture
-sent.clear()
-m.post_runs("0" * 16, runs)
-m.urllib.request.urlopen = real_urlopen
-os.environ.pop("MAPLE_EXP_ALLOW_SHARE")
-check("even a run that somehow had a note field wouldn't send it", "SNEAKY" not in sent[0][1].decode())
-
-# testing must never put made-up runs on the real site (it happened once, with a test launch)
-sent.clear()
-m.urllib.request.urlopen = capture
-try:
-    m.post_runs("0" * 16, log.runs)
-    blocked = False
-except RuntimeError:
-    blocked = True
-m.urllib.request.urlopen = real_urlopen
-check("while testing (MAPLE_EXP_DATA is set) nothing can be sent to the real site", blocked and not sent)
-# B06-2: every sender (runs, health, Send report, update check) refuses while testing, and the runs body is exactly the agreed fields
-sent.clear()
-m.urllib.request.urlopen = capture
-refused = []
-for sender, args in ((m.post_runs, ("0" * 16, log.runs)), (m.post_health, ({},)), (m.post_report, ({"message": "x"},)), (m.check_for_update, ())):
-    try:
-        sender(*args)
-        refused.append(False)
-    except RuntimeError:
-        refused.append(True)
-m.urllib.request.urlopen = real_urlopen
-check("while testing, the run sender, health sender, Send report and update check all refuse and send nothing", all(refused) and not sent)
-sent.clear()
-os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"
-m.urllib.request.urlopen = capture
-m.post_runs("0" * 16, [dict(r, potions={"Red Potion": 9}, potion_cost=5, note="n", window=True) for r in log.runs])
-m.urllib.request.urlopen = real_urlopen
-os.environ.pop("MAPLE_EXP_ALLOW_SHARE")
-body = json.loads(sent[0][1].decode()) if sent else {}
-check("a shared run carries exactly the agreed fields, and the body only the install ID and the runs",
-      set(body) == {"install", "runs"} and set(body["runs"][0]) == {"date", "started", "map_read", "class", "level_start", "level_end", "party",
-                                                                   "exp", "seconds", "mesos", "mesos_seconds", "version", "seal"})
-check("no test fixture has sharing switched on (a launch on one would send its made-up runs)",
-      not any(json.loads(f.read_text(encoding="utf-8")).get("share_runs") for f in (Path(__file__).parent / "upgrade").glob("*/config.json")))
-
-check("no test fixture has health reports switched on (a launch on one would send made-up numbers)",
-      not any(json.loads(f.read_text(encoding="utf-8")).get("share_health") for f in (Path(__file__).parent / "upgrade").glob("*/config.json")))
-check("every upgrade fixture from before health reports is asked about them (none has an answer yet)",
-      not any("share_health" in json.loads(f.read_text(encoding="utf-8")) for f in (Path(__file__).parent / "upgrade").glob("*/config.json")
-              if vt(f.parent.name) < HEALTH_FROM))
+check("privacy guard: the overlay never goes online itself, and opens the browser in exactly these places (Best maps, "
+      "Releases, Report a bug)",
+      "urlopen(" not in src and "urllib.request" not in src and src.count("webbrowser.open(") == 3
+      and "requests." not in src and "socket." not in src)
+check("the bug report never includes notes",
+      not any(w in inspect.getsource(m.App._report_text) for w in ("note_of", "notes_of", '"note"', "autolog.entries")))
 
 # a copy of the log is kept for each day, so a recent one is always there
 folder = Path(tempfile.mkdtemp())
@@ -1254,31 +1105,6 @@ check("a typed level is used like a read one (Lv 30, 'typed')",
       and tr.level_source == "typed" and tr.percent_mode)
 
 
-class FakeResponse:
-    def __init__(self, data):
-        self.data = json.dumps(data).encode()
-
-    def read(self, _=None):
-        return self.data
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        return False
-
-
-real_urlopen = m.urllib.request.urlopen
-os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"                  # (the network is stubbed here)
-m.urllib.request.urlopen = lambda *a, **k: FakeResponse({"results": [
-    {"started": "a", "ok": True}, {"started": "b", "ok": False, "why": "overlaps another run"},
-    {"started": "c", "ok": False, "why": "too many runs today", "retry": True}]})
-done = m.post_runs("0" * 16, [{"started": x} for x in "abc"])
-m.urllib.request.urlopen = real_urlopen
-os.environ.pop("MAPLE_EXP_ALLOW_SHARE")
-check(f"runs the site has, or turned down for good, aren't sent again; 'try tomorrow' ones are ({done})",
-      done == ["a", "b"])
-
 # ---- EXP tracking with noisy readings: misreads must never inflate the gains
 random.seed(1)
 reqs, worst = [54900, 63666, 73080], 0.0
@@ -1334,8 +1160,6 @@ tr.observe([(1, 71.68)], False)
 tr.observe([(1, 71.68)], False)
 check("an untrusted reading doesn't set the level", tr.req is None)
 check("'1 [71.68%]' (digits cut off) fits no level, so it isn't trusted", not m.fits_exp_table(1, 71.68))
-
-check("this version has a What's new entry (it is shown once after updating)", m.VERSION in m.WHATS_NEW)
 
 # ---- the window tests open their windows on the second screen, never on the main one
 from screens import pick_second  # noqa: E402
@@ -1967,15 +1791,6 @@ check("an edited line with a cost is still caught", m.AutoLog(15, path, path.wit
 log, path = new_log()
 farm_potions(log, 0, 910)
 check("the 15-minute run has no potion data", log.runs and all(not any("potion" in k for k in r) for r in log.runs))
-sent = []
-m.urllib.request.urlopen = capture
-os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"
-m.post_runs("0" * 16, log.unshared_runs())
-m.urllib.request.urlopen = real_urlopen
-os.environ.pop("MAPLE_EXP_ALLOW_SHARE")
-body = sent[0][1].decode() if sent else ""
-check("nothing about potions is sent to the stats site", len(sent) == 1 and "potion" not in body.lower()
-      and "Red Potion" not in body)
 
 # net mesos/hr in the log: mesos/hr minus what the potions cost per hour
 pe = {"date": "2026-10-08", "map": "Rocky Road II", "level": 27, "party": 1, "class": "Bandit", "exp": 120000,
@@ -2086,18 +1901,6 @@ def steady(per_s=10, every=1, since=0, until=None):
     return at
 
 
-def sent_body(runs):
-    sent.clear()
-    m.urllib.request.urlopen = capture
-    os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"
-    try:
-        m.post_runs("0" * 16, runs)
-    finally:
-        m.urllib.request.urlopen = real_urlopen
-        os.environ.pop("MAPLE_EXP_ALLOW_SHARE")
-    return sent[0][1].decode() if sent else ""
-
-
 # 15 s without EXP ends a run, whatever the gap setting; the log lines still use the setting
 folder = Path(tempfile.mkdtemp())
 log = m.AutoLog(600, folder / "log.json", folder / "log.txt")
@@ -2110,10 +1913,6 @@ farm(log, 0, 935, mesos_at=steady())
 r = log.runs[0] if log.runs else {}
 check(f"a clean run with the inventory open is shared with its mesos ({r.get('mesos')}, {r.get('mesos_seconds')})",
       log.unshared_runs() == [r] and abs(r.get("mesos", 0) - 9000) <= 10 and r.get("mesos_seconds") == 900)
-body = sent_body(log.unshared_runs())
-check("...and what is sent has the same fields as before", json.loads(body)["runs"][0].keys() == {
-    "date", "started", "map_read", "class", "level_start", "level_end", "party", "exp", "seconds", "mesos",
-    "mesos_seconds", "version", "seal"})
 
 # a shop, storage or trade window during the run
 log, _ = new_log()
@@ -2122,7 +1921,6 @@ r = log.runs[0] if log.runs else {}
 check(f"a run with a window seen is kept with its mesos ({r.get('mesos')}) and never shared",
       r.get("window") is True and r.get("mesos", 0) > 8000 and log.unshared_runs() == [])
 check("...the flag isn't part of its seal", log.sealed(r, m._SEALED_RUN) and "window" not in m._SEALED_RUN)
-check("...and isn't sent even if the run were", '"window"' not in sent_body([r]))
 log, _ = new_log()
 farm(log, 0, 935, mesos_at=steady(), window_at=lambda t: -5)
 check("a window seen before the run started doesn't count", len(log.unshared_runs()) == 1)
@@ -2452,19 +2250,6 @@ m._last_errors.clear()
 for i in range(50):
     m.log_error(f"reading the mesos failed ({i} more failures skipped since the last entry)", ValueError("x"))
 check("...nor when what was being done carries a changing count (one remembered key)", len(m._last_errors) == 1)
-
-# the update check stays quiet on a test data folder, like every sender (owner, 2026-10-25)
-real_urlopen = m.urllib.request.urlopen
-m.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(AssertionError("went online"))
-try:
-    m.check_for_update()
-    quiet = False
-except RuntimeError:
-    quiet = True
-except AssertionError:
-    quiet = False
-m.urllib.request.urlopen = real_urlopen
-check("the update check doesn't go online while MAPLE_EXP_DATA is set", quiet)
 
 # ---- B08: a log saved with a BOM (Notepad), hand-edited potion counts, a misread's gain taken back
 log, path = new_log()

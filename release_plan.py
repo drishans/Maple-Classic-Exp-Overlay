@@ -5,11 +5,10 @@
   python release_plan.py set-version <version>        rewrites VERSION in maple_exp.py (Mac test builds)
 
 Three kinds of run:
-  release   a tag like v0.9.16-beta. Windows + both Macs, ONE draft release. The tag must equal VERSION in
-            maple_exp.py and VERSION must be listed in server/src/released.js (the site takes runs and reports only
-            from listed versions).
+  release   a tag like v0.9.16-offline.1. Windows + both Macs, ONE draft release. The tag must equal VERSION in
+            maple_exp.py.
   mactest   a tag like mac-test-v0.9.16-beta.1. Macs only, a draft PRE-release. The build calls itself
-            0.9.16-mactest.1 (never listed in released.js) and maple_exp.sharing_blocked() makes it send nothing.
+            0.9.16-mactest.1, so it's never taken for a release.
   branch    "Run workflow" on a branch: builds and keeps the files on the run's page, no release.
 
 Only the standard library, so the first (read-only) job can run it without installing anything.
@@ -37,29 +36,22 @@ def source_version(text):
     return found[0]
 
 
-def plan(ref_type, ref_name, source_text, released_text):
-    """{"kind", "tag", "version"} for this run, or PlanError. `source_text` is maple_exp.py, `released_text` is
-    server/src/released.js."""
+def plan(ref_type, ref_name, source_text):
+    """{"kind", "tag", "version"} for this run, or PlanError. `source_text` is maple_exp.py."""
     version = source_version(source_text)
     if ref_type != "tag":
         return {"kind": "branch", "tag": "", "version": version}
     mac = MACTEST_TAG.fullmatch(ref_name)
     if mac:
-        test_version = f"{mac[1]}{TEST_BUILD_MARK}.{mac[2]}"
-        if f'"{test_version}"' in released_text:
-            raise PlanError(f"{test_version} is listed in server/src/released.js: a Mac test build must never be")
-        return {"kind": "mactest", "tag": ref_name, "version": test_version}
+        return {"kind": "mactest", "tag": ref_name, "version": f"{mac[1]}{TEST_BUILD_MARK}.{mac[2]}"}
     rel = RELEASE_TAG.fullmatch(ref_name)
     if not rel:
-        raise PlanError(f"{ref_name} is neither a release tag (v0.9.16-beta) nor a Mac test tag (mac-test-v0.9.16-beta.1)")
+        raise PlanError(f"{ref_name} is neither a release tag (v0.9.16-offline.1) nor a Mac test tag "
+                        "(mac-test-v0.9.16-beta.1)")
     if TEST_BUILD_MARK in rel[1]:
         raise PlanError(f"{ref_name} has {TEST_BUILD_MARK} in it, which only Mac test builds may")
     if rel[1] != version:
         raise PlanError(f"The tag is {ref_name} but maple_exp.py says VERSION = {version}. Fix one, and tag again.")
-    # mcwo.app takes runs and reports only from the versions in server/src/released.js.
-    if f'"{version}"' not in released_text:
-        raise PlanError(f"VERSION {version} is missing from server/src/released.js: add it, deploy the site before "
-                        "Publish, and tag again.")
     return {"kind": "release", "tag": ref_name, "version": version}
 
 
@@ -76,8 +68,7 @@ def set_version(source_bytes, version):
 def main(argv):
     try:
         if argv[:1] == ["plan"] and len(argv) == 3:
-            got = plan(argv[1], argv[2], (ROOT / "maple_exp.py").read_text(encoding="utf-8"),
-                       (ROOT / "server" / "src" / "released.js").read_text(encoding="utf-8"))
+            got = plan(argv[1], argv[2], (ROOT / "maple_exp.py").read_text(encoding="utf-8"))
             for key in ("kind", "tag", "version"):
                 print(f"{key}={got[key]}")
             return 0

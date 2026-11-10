@@ -50,8 +50,7 @@ seed = m.AutoLog(15, m.LOG_PATH, m.LOG_TEXT_PATH)
 t = farm(seed, 0, 310, party=1, map_name="Ant Tunnel I")
 t = farm(seed, t + 60, 310, party=4, map_name="Wild Boar Land II", level=30)
 t = farm(seed, t + 60, 310, party=5, map_name="Wild Boar Land II", level=30)
-m.save_config({**m.DEFAULTS, "log_open": True, "pos": POS, "hotkeys_on": False, "check_updates": False,
-               "share_runs": False})
+m.save_config({**m.DEFAULTS, "log_open": True, "pos": POS, "hotkeys_on": False})
 
 root = m.tk.Tk()
 app = m.App(root, m.DigitTemplates.load())
@@ -177,7 +176,7 @@ check("every line is still as the overlay wrote it (notes don't break the seal)"
 
 # ---- the design: every size, every state, and awkward values never break the window
 root = m.tk.Tk()
-m.save_config({**m.DEFAULTS, "hotkeys_on": False, "check_updates": False, "share_runs": False, "pos": POS})
+m.save_config({**m.DEFAULTS, "hotkeys_on": False, "pos": POS})
 app = m.App(root, m.DigitTemplates.load())
 t, meso = app.tracker, app.meso
 real_max_ui_scale = app._max_ui_scale
@@ -368,17 +367,19 @@ check("the shape is saved", json.loads((DATA / "config.json").read_text(encoding
 app.set_shape("square")
 app._set_start("Start")
 
-# Settings has a What's new button that shows this version's notes again
+# Settings has a What's new button that shows this version's notes again (or says there are none)
 shown = []
 real_whats_new = app._whats_new
 app._whats_new = lambda notes, then: shown.append(notes)
 app.show_whats_new()
-check("Settings > What's new shows this version's notes again", shown == [m.WHATS_NEW[m.VERSION]])
+check("Settings > What's new shows this version's notes again, or says there's nothing new",
+      shown == [m.WHATS_NEW.get(m.VERSION) or ("Nothing new to show for this version.",)])
 app._whats_new = real_whats_new
 
-# this version's note opens, and says what the hotfix is about
+# the newest notes open, and say what the version was about
+LATEST = max(m.WHATS_NEW, key=m.version_key)
 before = set(app.root.winfo_children())
-app._whats_new(m.WHATS_NEW[m.VERSION], None)
+app._whats_new(m.WHATS_NEW[LATEST], None)
 root.update()
 opened = [c for c in app.root.winfo_children() if c not in before and c.winfo_class() == "Toplevel"]
 texts = []
@@ -391,7 +392,7 @@ for top in opened:
             texts.append(str(w0.cget("text")))
         except Exception:
             pass
-first_head = next(x[1] for x in m.WHATS_NEW[m.VERSION][0][2] if isinstance(x, tuple) and x[0] == "head")
+first_head = next(x[1] for x in m.WHATS_NEW[LATEST][0][2] if isinstance(x, tuple) and x[0] == "head")
 check(f"this version's What's new window opens with its first heading ({first_head})",
       len(opened) == 1 and any(first_head in t for t in texts))
 for top in opened:
@@ -429,86 +430,51 @@ check(f"Next shows the potion page with a Got it button, and both pictures on a 
       and (pictures == 2 or win.winfo_screenheight() < 1000))
 check("...and the window fits on the screen", win.winfo_reqheight() <= win.winfo_screenheight() - 60)
 win.destroy()
-# first launch: a new install picks a shape, an update shows what's new, and each only once
+# first launch: a new install picks a shape, an update shows what's new (when the version has notes), each only once,
+# and nothing asks about sharing or health reports
 calls = []
-app._shape_picker = lambda then: calls.append("picker") or then()
-app._whats_new = lambda notes, then: calls.append("notes") or then()
-app._ask_to_share = lambda: calls.append("share")
+app._shape_picker = lambda then: calls.append("picker") or (then and then())
+app._whats_new = lambda notes, then: calls.append("notes") or (then and then())
+real_ask_yesno = m.messagebox.askyesno
+m.messagebox.askyesno = lambda title, text, **k: calls.append("asked: " + title)
 
 
 def first_run(fresh, seen):
     calls.clear()
     app._fresh, app.cfg["seen_version"] = fresh, seen
     app._first_run()
+    root.update()
     return list(calls), app.cfg["seen_version"]
 
 
-check("a new install picks a compact shape, then gets the sharing question", first_run(True, "") == (["picker", "share"], m.VERSION))
-check("someone updating sees what's new once, then the sharing question", first_run(False, "0.9.9-beta") == (["notes", "share"], m.VERSION))
-check("an existing config from before this feature counts as an update", first_run(False, "") == (["notes", "share"], m.VERSION))
-check("the same version shows neither again", first_run(False, m.VERSION) == (["share"], m.VERSION))
-check("going back to an older version shows nothing and keeps what was seen", first_run(False, "0.9.99") == (["share"], "0.9.99"))
-check("what's new has a note for this version", bool(m.WHATS_NEW.get(m.VERSION)))
-# the health report question: asked once, after the sharing question; "No" never sends
-del app._ask_to_share
-real_ask_yesno, real_post_health = m.messagebox.askyesno, m.post_health
-asked, answer, posted = [], [False], []
-m.messagebox.askyesno = lambda title, text, **k: asked.append(title) or answer[0]
-m.post_health = lambda body, timeout=15: posted.append(body) or ("ok", "")
-os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"              # (post_health is replaced above: nothing leaves this PC)
-app.cfg["share_runs"] = False
-app.cfg.pop("share_health", None)
-yesterday = m.healthlog.utc_day(time.time() - 86400)
-real_clock = app.healthlog.clock
-app.healthlog.clock = lambda: time.time() - 86400
-app.healthlog.snapshot("0.9.14-beta", "Windows 10", [], "screen", "ok")
-app.healthlog.look("read", ms=10.0, game=(1920, 1080, False, 11.0))
-app.healthlog.clock = real_clock
-app._ask_to_share()
-check("the health question is asked once, with its own title", asked == ["Help make the overlay more reliable?"]
-      and app.cfg["share_health"] is False)
-app._ask_to_share()
-check("...and not again", len(asked) == 1)
-app._health_tick()
-pump(0.6)
-check("answering No never sends anything", not posted and app.cfg["share_health"] is False)
-# a brand-new install (neither question answered yet): the runs question first, then the health one, each once
-app.cfg.pop("share_runs", None)
-app.cfg.pop("share_health", None)
-asked.clear()
-app._ask_to_share()
-app._ask_to_share()
-check("a new install is asked about sharing runs, then about health reports, and neither twice",
-      asked == ["Help other players pick maps?", "Help make the overlay more reliable?"]
-      and app.cfg["share_runs"] is False and app.cfg["share_health"] is False and not posted)
-app.cfg.pop("share_health")
-answer[0] = True
-app._ask_to_share()
-check("answering Yes is saved", app.cfg["share_health"] is True)
-app.healthlog.last_attempt = 0.0
-app._health_tick()
-pump(0.8)
-check("with Yes, the finished day is sent once and marked sent", len(posted) == 1 and posted[0]["day"] == yesterday
-      and posted[0]["id"] == app.cfg["health_id"] and app.healthlog.last_sent == yesterday)
-app._health_tick()
-pump(0.4)
-check("...and not again", len(posted) == 1)
+notes = ["notes"] if m.WHATS_NEW.get(m.VERSION) else []
+check("a new install picks a compact shape, and is asked nothing else", first_run(True, "") == (["picker"], m.VERSION))
+check("someone updating sees what's new once (if this version has notes)", first_run(False, "0.9.9-beta") == (notes, m.VERSION))
+check("updating from the original's 0.9.16-beta counts as an update", first_run(False, "0.9.16-beta") == (notes, m.VERSION))
+check("an existing config from before this feature counts as an update", first_run(False, "") == (notes, m.VERSION))
+check("the same version shows nothing again", first_run(False, m.VERSION) == ([], m.VERSION))
+check("going back to an older version shows nothing and keeps what was seen", first_run(False, "0.9.99") == ([], "0.9.99"))
+m.messagebox.askyesno = real_ask_yesno
+# Settings: no sharing, health report or update switches; a note that it's offline, and Releases opens the browser
 app.open_settings()
 sw = app.settings_win
 sw.update()
-check("Settings has a health report switch showing the answer", app._health_on.get() is True)
-app._health_on.set(False)
-sw.update()
-check("switching it off in Settings is saved", app.cfg["share_health"] is False
-      and json.loads(m.CONFIG_PATH.read_text())["share_health"] is False)
-app._health_on.set(True)
-sw.update()
-check("...and on again", app.cfg["share_health"] is True)
+seen_text = [str(c.cget("text")) for c in widgets(sw) if c.winfo_class() == "Label"] + [
+    str(c.text) for c in widgets(sw) if isinstance(c, ui_main.Button)]
+check("Settings says this copy never goes online by itself", any("never goes online by itself" in t for t in seen_text))
+check("...and has no sharing, health report or update check switches, and no Check for updates button",
+      not any(s in t for t in seen_text for s in ("Share my", "health report", "Check for updates")))
+opened_urls = []
+real_open = m.webbrowser.open
+m.webbrowser.open = lambda url, *a, **k: opened_urls.append(url)
+try:
+    button(sw, "Releases")[0].command()
+finally:
+    m.webbrowser.open = real_open
+check("...its Releases button opens this fork's releases page in the browser",
+      opened_urls == [m.RELEASES_PAGE] and "/drishans/" in m.RELEASES_PAGE)
 sw.destroy()
 app.settings_win = None
-os.environ.pop("MAPLE_EXP_ALLOW_SHARE")
-m.messagebox.askyesno, m.post_health = real_ask_yesno, real_post_health
-app._ask_to_share = lambda: calls.append("share")
 picked = []
 selector = m.RegionSelector(root, picked.append)             # (it crashed on Windows in 0.9.7 and 0.9.8-beta)
 root.update()
@@ -797,7 +763,7 @@ pill_for = lambda: m.App._state(NS(reader=NS(mode="window", hwnd=1), rejected=0,
                                    tracker=NS(req=1, running=True, elapsed=lambda: 5.0), session=NS(waiting=None)))
 state = pill_for()
 check(f"...the pill says so ({state[1]!r})", state[1].endswith("No Reset"))
-check("...and the status line explains it (runs stay on this PC)", app._status_for("") == m.NO_RESET_ON)
+check("...and the status line explains it", app._status_for("") == m.NO_RESET_ON)
 app._hotkey("no_reset")
 root.update()
 check("the No Reset hotkey turns it off again, switch included", app.cfg["no_reset"] is False and not app.session.no_reset
@@ -1264,177 +1230,30 @@ check(f"...most of the name covered (too little to tell) keeps the session and s
       app.tracker.req == 95700 and "covered" in app.status.get() and app.other_char_at is None)
 app.reset()
 
-# ---- Report a bug > Send to the developer
-def new_windows(before):
-    return [c for c in app.root.winfo_children() if c not in before and c.winfo_class() == "Toplevel"]
-
-
-before = set(app.root.winfo_children())
-choice = app.report_bug()
-root.update()
-check("Report a bug offers both ways: Send to the developer and Report on GitHub",
-      button(choice, "Send to the developer") and button(choice, "Report on GitHub") and button(choice, "Cancel"))
-button(choice, "Cancel")[0].command()
-root.update()
-check("Cancel closes the choice", not choice.winfo_exists())
-
-posted = []
-real_post = m.post_report
-m.post_report = lambda body, timeout=15: (posted.append(body), "ok")[1]
-real_details = app._report_details
-app._report_details = lambda: "Maple Classic Exp Overlay bug report details\nEXP bar: found\nreading C:" + chr(92) + "Games" + chr(92) + "x.dll"
+# ---- Report a bug: only the GitHub way (the browser opens a new issue; nothing is sent from here)
+said, urls, shown_files = [], [], []
+real_okcancel, real_yesno, real_open, real_show = (m.messagebox.askokcancel, m.messagebox.askyesno, m.webbrowser.open,
+                                                   m.PLATFORM.show_file)
+m.webbrowser.open = lambda url, *a, **k: urls.append(url)
+m.PLATFORM.show_file = lambda path: shown_files.append(path)
 try:
+    m.messagebox.askokcancel = lambda title, text, **k: said.append(text) or False
     before = set(app.root.winfo_children())
-    app.send_report()
+    app.report_bug()
     root.update()
-    dlg = new_windows(before)[0]
-    check("Send to the developer opens the dialog with the text box, the note and Send / Cancel",
-          button(dlg, "Send") and button(dlg, "Cancel") and any("No pictures are sent" in t for t in labels(dlg))
-          and any("What went wrong?" in t for t in labels(dlg)))
-    check("the 'What will be sent' fold-out starts closed", not dlg.fold.winfo_ismapped())
-    button(dlg, "What will be sent  " + chr(0x25b8))[0].command()
+    check("Report a bug goes straight to the GitHub report: it explains first, and Cancel opens nothing",
+          len(said) == 1 and "GitHub" in said[0] and not urls
+          and not [c for c in app.root.winfo_children() if c not in before and c.winfo_class() == "Toplevel"])
+    m.messagebox.askokcancel = lambda *a, **k: True
+    m.messagebox.askyesno = lambda *a, **k: False          # (no picture of the whole game)
+    app.report_bug()
     root.update()
-    shown_text = dlg.sent_text.get("1.0", "end-1c")
-    check("opening the fold-out shows the exact text that will be sent", dlg.fold.winfo_ismapped() and shown_text == dlg.details
-          and "EXP bar: found" in shown_text)
-
-    button(dlg, "Send")[0].command()
-    root.update()
-    check("Send with an empty box is refused and nothing is posted", not posted and "write a sentence" in dlg.status.cget("text"))
-    dlg.message.insert("1.0", "see www.spam.org")
-    button(dlg, "Send")[0].command()
-    root.update()
-    check("a link in the text is refused", not posted and "leave out links" in dlg.status.cget("text"))
-    dlg.message.delete("1.0", "end")
-    dlg.message.insert("1.0", "x" * 2001)
-    dlg.typed()
-    button(dlg, "Send")[0].command()
-    root.update()
-    check("more than 2,000 characters is refused, and the counter shows it",
-          not posted and "2,001 / 2,000" in dlg.counter.cget("text"))
-    dlg.message.delete("1.0", "end")
-    dlg.message.insert("1.0", "It stopped reading after I changed maps.")
-    dlg.typed()
-    check("the live counter counts what is typed", "40 / 2,000" in dlg.counter.cget("text"))
-    check("with sharing blocked (testing) it won't send", (button(dlg, "Send")[0].command(), root.update(), not posted)[2]
-          and "off while testing" in dlg.status.cget("text"))
-
-    def wait_until(done, seconds=5):
-        """Keeps the window going until done() (the app's own queue handler answers the send), at most `seconds`."""
-        end = time.monotonic() + seconds
-        while not done() and time.monotonic() < end:
-            root.update()
-            time.sleep(0.05)
-
-    os.environ["MAPLE_EXP_ALLOW_SHARE"] = "1"
-    button(dlg, "Send")[0].command()
-    wait_until(lambda: "Sent, thank you" in dlg.status.cget("text"))
-    check("Send posts the four fields, with the health ID and the scrubbed text",
-          len(posted) == 1 and set(posted[0]) == {"id", "version", "message", "details"}
-          and posted[0]["details"] == dlg.details and posted[0]["message"] == "It stopped reading after I changed maps."
-          and posted[0]["version"] == m.VERSION and m.healthlog.good_id(posted[0]["id"]) and posted[0]["id"] == app.cfg["health_id"])
-    check("...then says thank you and counts it", "Sent, thank you" in dlg.status.cget("text") and m.reports_sent_today(app.cfg) == 1)
-    dlg.destroy()
-
-    # A05: the site counts UTF-16 units (an emoji is 2), and the window keeps answering while a send is slow
-    app.cfg.pop("reports_sent", None)
-    before = set(app.root.winfo_children())
-    app.send_report()
-    root.update()
-    d_slow = new_windows(before)[0]
-    d_slow.message.insert("1.0", "\U0001F600" * 1001)
-    d_slow.typed()
-    check("the counter counts an emoji as 2, like the site, and turns red over 2,000",
-          "2,002 / 2,000" in d_slow.counter.cget("text") and d_slow.counter.cget("fg") == m.BAD)
-    d_slow.message.delete("1.0", "end")
-    d_slow.message.insert("1.0", "slow site")
-    slow_count = len(posted)
-    m.post_report = lambda body, timeout=15: (time.sleep(1.5), "ok")[1]
-    t0 = time.monotonic()
-    button(d_slow, "Send")[0].command()
-    stamps = [time.monotonic()]
-    while "Sent, thank you" not in d_slow.status.cget("text") and time.monotonic() - t0 < 15:
-        root.update()
-        stamps.append(time.monotonic())
-        time.sleep(0.02)
-    gap = max(b - a for a, b in zip(stamps, stamps[1:])) if len(stamps) > 1 else 99
-    # (a frozen window would sit the whole 1.5 s send in one update; a slow test machine only makes updates fewer)
-    check(f"while a slow send is waiting the window keeps answering (no freeze; longest pause {gap:.2f} s), then says thank you",
-          gap < 1.0 and stamps[-1] - t0 >= 1.4 and "Sent, thank you" in d_slow.status.cget("text") and len(posted) == slow_count)
-    m.post_report = lambda body, timeout=15: (posted.append(body), "ok")[1]
-    d_slow.destroy()
-    app.cfg.pop("reports_sent", None)
-
-    for n in (2, 3):
-        app.cfg["reports_sent"] = {"day": m.healthlog.utc_day(time.time()), "n": n}
-        before = set(app.root.winfo_children())
-        app.send_report()
-        root.update()
-        d2 = new_windows(before)[0]
-        d2.message.insert("1.0", "again")
-        button(d2, "Send")[0].command()
-        root.update()
-        if n == 2:
-            wait_until(lambda: "Sent, thank you" in d2.status.cget("text"))
-            check("a 3rd report on the day is still allowed", len(posted) == 2)
-        else:
-            check("a 4th report on the day is refused locally, in plain words",
-                  len(posted) == 2 and "sent 3 reports today" in d2.status.cget("text"))
-        d2.destroy()
-
-    # B03: the number the site gave is shown with the two ways to reach the developer; without it, no number
-    for number, expect in ((17, True), (None, False)):
-        app.cfg["reports_sent"] = {"day": "2000-01-01", "n": 0}
-        before = set(app.root.winfo_children())
-        app.send_report()
-        root.update()
-        d5 = new_windows(before)[0]
-        done = m.ReportOutcome("ok")
-        done.n = number
-        app._report_done(d5, done)
-        root.update()
-        text = d5.status.cget("text")
-        check(f"a sent report {'#17 shows its number and Want a reply?' if expect else 'without a number shows none'}",
-              ("report #17" in text and "Want a reply" in text) == expect and "Sent, thank you" in text)
-        check(f"...{'with a GitHub issues and a Reddit button' if expect else 'and no extra buttons'}",
-              (button(d5, "GitHub issues") != [] and button(d5, "Reddit") != []) == expect)
-        if expect:
-            opened = []
-            real_open = m.webbrowser.open
-            m.webbrowser.open = lambda url, *a, **k: opened.append(url)
-            try:
-                check("...nothing opens until a click", not opened)
-                button(d5, "Reddit")[0].command()
-                button(d5, "GitHub issues")[0].command()
-            finally:
-                m.webbrowser.open = real_open
-            check("...Reddit opens the owner's page, GitHub issues the repo's", opened == [m.REPORT_REDDIT, f"https://github.com/{m.GITHUB_REPO}/issues"])
-        d5.destroy()
-    app.cfg.pop("reports_sent", None)
-
-    for outcome, words in (("later", "connected to the internet"), ("message", "leave out links"), ("limit", "sent 3 reports")):
-        app.cfg["reports_sent"] = {"day": "2000-01-01", "n": 0}
-        before = set(app.root.winfo_children())
-        app.send_report()
-        root.update()
-        d3 = new_windows(before)[0]
-        app._report_done(d3, outcome)
-        check(f"a '{outcome}' answer is explained in plain words and Send works again",
-              words in d3.status.cget("text") and d3.send_button._enabled)
-        d3.destroy()
-    app.cfg.pop("reports_sent", None)
-
-    before = set(app.root.winfo_children())
-    app.send_report()
-    root.update()
-    d4 = new_windows(before)[0]
-    button(d4, "Cancel")[0].command()
-    root.update()
-    check("Cancel closes the dialog without sending", not d4.winfo_exists() and len(posted) == 2)
+    check("...and OK opens a new, filled-in issue on this fork's GitHub in the browser",
+          len(urls) == 1 and urls[0].startswith(f"https://github.com/{m.GITHUB_REPO}/issues/new?")
+          and "/drishans/" in urls[0] and shown_files)
 finally:
-    m.post_report = real_post
-    app._report_details = real_details
-    os.environ.pop("MAPLE_EXP_ALLOW_SHARE", None)
+    m.messagebox.askokcancel, m.messagebox.askyesno, m.webbrowser.open = real_okcancel, real_yesno, real_open
+    m.PLATFORM.show_file = real_show
 
 if SCREEN:
     check(f"every window the tests opened is on the second screen (strays: {stray_windows(SCREEN)})", not stray_windows(SCREEN))
