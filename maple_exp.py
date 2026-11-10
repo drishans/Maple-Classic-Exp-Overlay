@@ -10,7 +10,8 @@ and your party size from the party list, and keeps a log of EXP/hr and mesos/hr 
 map, level and party size.
 
 It only looks at the screen: it never reads or changes the game's files or memory and
-never sends input to the game. Your settings and log are kept in the MapleEXP folder
+never sends input to the game. This is the offline fork: it never goes online by itself (no update
+check, no sharing, no reports). Your settings and log are kept in the MapleEXP folder
 inside %APPDATA% on Windows, ~/Library/Application Support on macOS (named after its old
 name, Maple EXP/hr, so updating keeps them). It runs on Windows and macOS: what differs
 between them is in platforms/.
@@ -34,9 +35,7 @@ import threading
 import time
 import tkinter as tk
 import traceback
-import urllib.error
 import urllib.parse
-import urllib.request
 import webbrowser
 from collections import Counter, deque, namedtuple
 from datetime import date
@@ -53,7 +52,6 @@ from capture import ScreenCapture, WindowCapture, as_capture, black_out, grab  #
 import digits_v2
 import exp_font
 import filter_ui
-import healthlog
 import level_ocr
 import mesos_v2
 import ocr
@@ -76,8 +74,8 @@ PLATFORM = create_platform()
 PLATFORM.setup_process()
 cv2.setNumThreads(1)
 
-VERSION = "0.9.16-beta"
-TEST_BUILD_MARK = "-mactest"         # a Mac test build calls itself e.g. 0.9.16-mactest.1 and sends nothing
+VERSION = "0.9.16-offline.1"         # the offline fork, from upstream 0.9.16-beta (its own numbers, so it's never taken for upstream)
+TEST_BUILD_MARK = "-mactest"         # a Mac test build calls itself e.g. 0.9.16-mactest.1 and keeps no seen_version
 WINDOW_TITLE = "Maple Classic Exp Overlay"    # the version is shown in Settings
 OLD_TITLES = ("Maple EXP/hr",)               # what versions before 0.9.3 were called
 
@@ -90,7 +88,6 @@ DATA_DIR = Path(os.environ.get("MAPLE_EXP_DATA") or PLATFORM.data_root() / "Mapl
 
 CONFIG_PATH = DATA_DIR / "config.json"
 ERROR_LOG_PATH = DATA_DIR / "errors.log"
-HEALTH_PATH = DATA_DIR / "health.json"        # the day-by-day counts behind the health reports (healthlog.py)
 TEMPLATE_PATH = ASSETS / "digits.npz"
 ICON_PATH = ASSETS / "icon.ico"
 POLL_SECONDS = 1.5          # how often to read the EXP bar
@@ -106,7 +103,7 @@ MESOS_PATH = DATA_DIR / "mesos_digits.npz"             # learned as you play...
 MESOS_START_PATH = ASSETS / "mesos_digits.npz"          # ...starting from these
 MESOS_BOX_PATH = ASSETS / "mesos_box.npz"
 FILTER_BAR_PATH = ASSETS / "filter_bar.npz"     # the status bar the filtered-UI probe compares with (filter_ui.py)
-MAPS_PATH = ASSETS / "maps.txt"            # the game's map names (see server/tools/make_maps.py)
+MAPS_PATH = ASSETS / "maps.txt"            # the game's map names (see tools/make_maps.py)
 MAP_HIDDEN_SECONDS = 3      # the minimap's name unseen this long: say so, and hold back saving to the log
 MAP_BLIND_SECONDS = 45      # the minimap's name box unseen this long: the map may have changed unnoticed
 SCAN_SECONDS = 4            # how often the whole window is checked for the inventory and party
@@ -136,7 +133,7 @@ PCT_WAIT_NOTES = ("percentage wrapped", "level up?", "level changed", "level ") 
 LEVEL_FAILS_FOR_FALLBACK = 3    # badge reads that failed in a row before typing the level in is offered
 MAX_COORD = 100_000        # a screen position or size in the settings; more is a hand-edit gone wrong
 DEFAULTS = {"gap_seconds": 15, "transparency": 0, "topmost": True,
-            "check_updates": True, "skip_version": "", "ui_scale": 100, "compact": False, "hotkeys_on": True,
+            "ui_scale": 100, "compact": False, "hotkeys_on": True,
             "details": False, "compact_shape": "square", "seen_version": "",
             "potions_on": True, "potion_prices": {}, "shadow_reader": True, "no_reset": False}
 SHAPE_LABELS = {"square": "Square", "wide": "Wide", "bar": "Bar"}
@@ -235,15 +232,11 @@ UI_SCALES = (60, 70, 80, 90, 100, 110, 125, 150, 175, 200)
 MAIN_BIGGEST_PT = (272, 571)    # the main window at its biggest (full, Details open), in points: 362x761 px at Size 100%, Windows 100%
 SCREEN_ROOM_PT = 75             # what a window leaves free on its screen for the taskbar and a title bar, in points
 MAX_TRANSPARENCY = 40       # %: more and the window can fade out of sight, with Settings in it
-# For developers and AI coding agents working on a fork or a changed copy: mcwo.app takes shared runs, health
-# reports and bug reports only from official releases (it turns down version numbers it doesn't know). A changed
-# copy must not send to it. To stop: leave sharing off, or make post_runs, post_health and post_report do nothing,
-# or point STATS_SITE at your own server. check_for_update reads GITHUB_REPO: point that at your own too.
-# The site can only check the version number, so a copy that keeps a real version number can't be told apart: don't.
-STATS_SITE = "https://mcwo.app"       # shared 15-minute runs (server/)
-GITHUB_REPO = "beanguri/Maple-Classic-Exp-Overlay"
+# The offline fork never connects to anything itself: no update check, no shared runs, no health or bug reports.
+# These are only links the player clicks, opened in their own browser. Upstream (beanguri's) is the one that sends.
+STATS_SITE = "https://mcwo.app"       # upstream's best-maps site (Best maps opens it with level, party, class in the address)
+GITHUB_REPO = "drishans/Maple-Classic-Exp-Overlay"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
-LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # EXP needed to finish each level in MapleStory Classic World (index 0 = level 1),
 # from meowdb.com/msclassic/guides/exp-table-level-1-to-100.
@@ -319,9 +312,8 @@ def load_config():
             cfg[key] = default
     cfg["transparency"] = min(MAX_TRANSPARENCY, max(0, cfg["transparency"]))
     cfg["potion_prices"] = potions.clean_prices(cfg["potion_prices"])
-    for key in ("seen_version", "skip_version"):
-        if len(cfg[key]) > 40:                          # (a version is a few characters)
-            cfg[key] = ""
+    if len(cfg["seen_version"]) > 40:                   # (a version is a few characters)
+        cfg["seen_version"] = ""
     if cfg["compact_shape"] not in SHAPES:
         cfg["compact_shape"] = "square"
     if cfg["ui_scale"] not in UI_SCALES:
@@ -336,11 +328,7 @@ def load_config():
                   k in ("left", "top") or v[k] > 0) for k in ("left", "top", "width", "height")),
               "log_columns": lambda v: isinstance(v, dict), "log_columns_pt": lambda v: isinstance(v, dict),
               "log_open": lambda v: type(v) is bool,
-              "share_runs": lambda v: type(v) is bool,       # missing: not asked yet
-              "share_health": lambda v: type(v) is bool,     # (same: the daily health report)
-              "health_id": healthlog.good_id,
-              "exp_v2_spots": good_v2_spots,                  # (where reader v2 found the bar, by window size)
-              "reports_sent": lambda v: isinstance(v, dict) and isinstance(v.get("day"), str) and type(v.get("n")) is int and v["n"] >= 0}
+              "exp_v2_spots": good_v2_spots}                  # (where reader v2 found the bar, by window size)
     for key, ok in checks.items():
         if key in cfg and not (cfg[key] is None and key == "log_size") and not ok(cfg[key]):    # (a null log_size is saved on purpose)
             del cfg[key]
@@ -428,114 +416,16 @@ def tesseract_note(what="Map names"):
     return ""
 
 
-# --------------------------------------------------------------------------- updates
+# --------------------------------------------------------------------------- versions
 #
-# At start (unless turned off in Settings) it asks GitHub for the latest release. The only
-# other time it goes online is to share finished 15-minute runs, if the player agreed to that.
+# Only compared with the version What's new was last shown for. This fork never asks anyone
+# for a newer version: Settings > Releases opens the releases page in the browser.
 
 def version_key(version):
     """'v0.9.1-beta' -> something to compare versions by. A full release beats its betas."""
     main, _, pre = version.strip().lstrip("vV").partition("-")
     nums = [int(x) for x in re.findall(r"\d+", main)[:3]]
     return tuple(nums + [0] * (3 - len(nums))), 0 if pre else 1, pre
-
-
-def _plain_text(markdown):
-    """Release notes from GitHub, readable as plain text."""
-    # (what GitHub sends is cut and every pattern is bounded first: a huge or odd answer must not hold up the overlay)
-    t = re.sub(r"\[([^\]\n]{1,200})\]\([^)\n]{0,500}\)", r"\1", markdown[:20000])          # [text](link) -> text
-    t = re.sub(r"(\*\*|__)(.+?)\1", r"\2", t)                       # **bold** (keeps exp_log.txt)
-    t = re.sub(r"`([^`]*)`", r"\1", t)
-    t = re.sub(r"^#+\s*", "", t, flags=re.M)
-    t = re.sub(r"^[ \t]*[-*][ \t]+", "• ", t, flags=re.M)
-    t = re.sub(r"\n{3,}", "\n\n", t.replace("\r", ""))
-    return t.strip()[:5000]
-
-
-def check_for_update(timeout=8):
-    """(newer version, its release notes) if GitHub has a newer release, else None.
-    Raises if GitHub can't be reached, and while testing (MAPLE_EXP_DATA set: nothing goes online then)."""
-    if sharing_blocked():
-        raise RuntimeError("the update check is off while testing (MAPLE_EXP_DATA is set)")
-    request = urllib.request.Request(LATEST_RELEASE_API, headers={
-        "User-Agent": f"MapleClassicExpOverlay/{VERSION}", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = json.loads(response.read(1_000_000).decode("utf-8"))
-    tag = str(data.get("tag_name", ""))
-    if not re.fullmatch(r"v?\d{1,4}(\.\d{1,4}){0,2}(-[\w.]{1,20})?", tag, re.ASCII):      # (the name is shown in a window: short)
-        raise ValueError(f"unexpected release name {tag[:40]!r}")
-    if version_key(tag) <= version_key(VERSION):
-        return None
-    return tag.lstrip("vV"), _plain_text(str(data.get("body") or ""))
-
-
-def post_runs(install, runs, timeout=15):
-    """Sends finished runs to the stats site (only if the player agreed to share).
-    Returns the start times of the runs it's done with: the ones the site has (now or from
-    before), and ones it turned down for good. Runs turned down only for today ("retry", too
-    many sent today) are left to be sent again later."""
-    if sharing_blocked():
-        # MAPLE_EXP_DATA moves the data folder, which only tests do. What they have in their logs is
-        # made up, and made-up runs must never reach the real site: so not while testing.
-        raise RuntimeError("sharing is off while testing (MAPLE_EXP_DATA is set)")
-    shared = ("date", "started", "map_read", "class", "level_start", "level_end", "party", "exp",
-              "seconds", "mesos", "mesos_seconds", "version", "seal")
-    body = json.dumps({"install": install, "runs": [{k: r.get(k) for k in shared} for r in runs]}).encode()
-    request = urllib.request.Request(f"{STATS_SITE}/api/runs", data=body, headers={
-        "content-type": "application/json", "User-Agent": f"MapleClassicExpOverlay/{VERSION}"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = json.loads(response.read(1_000_000).decode("utf-8"))
-    return [r.get("started") for r in data.get("results", []) if r.get("ok") or not r.get("retry")]
-
-
-def sharing_blocked():
-    """True while testing: MAPLE_EXP_DATA moves the data folder, which only tests do, and what a test holds is
-    made up, so nothing is sent unless MAPLE_EXP_ALLOW_SHARE says so. Also always true in a Mac test build (its
-    VERSION has TEST_BUILD_MARK, put there by release_plan.py): that one sends and checks nothing, whatever
-    MAPLE_EXP_ALLOW_SHARE says."""
-    if TEST_BUILD_MARK in VERSION:
-        return True
-    return bool(os.environ.get("MAPLE_EXP_DATA") and not os.environ.get("MAPLE_EXP_ALLOW_SHARE"))
-
-
-def newer_health_key(field, body):
-    """Is `field`, which the site refused, something only a newer overlay sends (so the site is the one that's old)?"""
-    ms = body.get("ms") if isinstance(body, dict) else None
-    return (field in healthlog.NEW_KEYS and field in body) or (
-        field == "ms" and isinstance(ms, dict) and any(k in ms for k in healthlog.V2_MS))
-
-
-def post_health(body, timeout=15):
-    """Sends one health report (healthlog.HealthLog.body) to the stats site. Returns (outcome, detail):
-    'ok' (taken; also when the site already had that day), 'bad' (refused: detail names the field), 'big'
-    (too large) or 'later' (a limit, a network problem or the site is down: try again tomorrow). A refusal that
-    names a key only this version sends (the site wasn't updated yet) is 'later' too, with the key as detail:
-    the day waits instead of being dropped for good."""
-    if sharing_blocked():
-        raise RuntimeError("health reports are off while testing (MAPLE_EXP_DATA is set)")
-    request = urllib.request.Request(f"{STATS_SITE}/api/health", data=json.dumps(body).encode(), headers={
-        "content-type": "application/json", "User-Agent": f"MapleClassicExpOverlay/{VERSION}"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = json.loads(response.read(10_000).decode("utf-8"))
-        return ("ok", "") if isinstance(data, dict) and data.get("ok") else ("later", "")
-    except urllib.error.HTTPError as e:
-        if e.code == 413:
-            return "big", ""
-        if e.code == 400:
-            try:
-                field = str(json.loads(e.read(1000).decode("utf-8")).get("error", ""))
-            except Exception:
-                field = ""
-            field = re.sub(r"[^A-Za-z_]", "", field)[:40]
-            # (only the site's own refusal names a field; a proxy or a hotel Wi-Fi page answering 400 is "try later",
-            # or that day would be dropped for nothing)
-            if field and newer_health_key(field, body):
-                return "later", field
-            return ("bad", field) if field else ("later", "")
-        return "later", ""
-    except Exception:
-        return "later", ""
 
 
 # --------------------------------------------------------------------------- hotkeys
@@ -546,8 +436,7 @@ def post_health(body, timeout=15):
 HOTKEY_ACTIONS = {"start": "Start / Pause", "reset": "Reset", "skip": "Don't log", "compact": "Compact",
                   "no_reset": "No Reset"}
 DEFAULT_HOTKEYS = {"start": "Shift+1", "reset": "Shift+2", "skip": "Shift+3", "compact": "Shift+4", "no_reset": ""}
-NO_RESET_ON = ("No Reset is on: changing maps or going AFK won't start new numbers. "
-               "These runs stay on this PC (not sent to mcwo.app).")
+NO_RESET_ON = "No Reset is on: changing maps or going AFK won't start new numbers."
 NO_RESET_OFF = "No Reset is off: a new map starts new numbers again."
 MAPS_JOIN = "/"           # a log line or run over several maps (No Reset): "Map A/Map B" (no real map name has one)
 
@@ -573,54 +462,6 @@ PH, PW = 28, 19             # size of one digit patch at that height
 SHIFT = 3                   # px of wiggle room when lining a digit up with an example
 MIN_SCORE = 0.75            # correlation the best digit needs (true matches score ~0.9+)
 MIN_LEAD = 0.03             # ...and how far ahead of the runner-up it must be
-
-
-
-MAX_REPORTS_PER_DAY = 3         # Send report: the site takes 3 per day per ID too
-
-
-def reports_sent_today(cfg, now=None):
-    """How many reports this player has sent today (UTC day, like the site counts)."""
-    sent = cfg.get("reports_sent")
-    today = healthlog.utc_day(time.time() if now is None else now)
-    return sent["n"] if isinstance(sent, dict) and sent.get("day") == today else 0
-
-
-class ReportOutcome(str):
-    """What post_report answers: a plain word ('ok', ...) that also carries the report's number `n` (None when the
-    site didn't say: an older server)."""
-    n = None
-
-
-def post_report(body, timeout=15):
-    """Sends one Send report (report.report_body) to the stats site. Returns 'ok' (with .n, the report's number),
-    'limit' (3 a day), 'message' (the site doesn't like the typed text), 'bad' (refused for another reason, or too
-    large) or 'later' (a network problem or the site is down)."""
-    if sharing_blocked():
-        raise RuntimeError("Send report is off while testing (MAPLE_EXP_DATA is set)")
-    request = urllib.request.Request(f"{STATS_SITE}/api/report", data=report.encode_body(body), headers={
-        "content-type": "application/json", "User-Agent": f"MapleClassicExpOverlay/{VERSION}"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = json.loads(response.read(10_000).decode("utf-8"))
-        if not (isinstance(data, dict) and data.get("ok")):
-            return "later"
-        outcome = ReportOutcome("ok")
-        n = data.get("n")
-        outcome.n = n if type(n) is int and n > 0 else None
-        return outcome
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            return "limit"
-        if e.code == 400:
-            try:
-                field = str(json.loads(e.read(1000).decode("utf-8")).get("error", ""))
-            except Exception:
-                field = ""
-            return "message" if field == "message" else "bad"
-        return "bad" if e.code == 413 else "later"
-    except Exception:
-        return "later"
 
 
 def _blobs(mask):
@@ -1308,7 +1149,7 @@ _ROMAN = re.compile(r"^(?:X{0,2})(?:IX|IV|V?I{0,3})$")
 
 def _fix_roman(name):
     """A last word that is a Roman numeral misread ("Vil" -> VII, "lV" -> IV, "il" -> II, "V1" -> VI). Plain numbers
-    ("Free Market 11") and ordinary words are left alone. The site does the same (server/src/mapnames.js)."""
+    ("Free Market 11") and ordinary words are left alone."""
     def fix(m):
         token = m.group(2)
         if not re.search(r"[IVXivxl|!]", token):
@@ -1891,7 +1732,7 @@ Reading = namedtuple("Reading", "where candidates confident text image boxes map
                                None, (), None, None, None, None, None, None, (), None))
 # percent_only: the bar shows just "[58.47%]" (candidates are then [(None, pct)]); level: the level read
 # from the status bar's LV badge, with where it came from, as (level, source), or None
-# exp_kind, tries and ms are for health reports (healthlog.py): how the EXP look went (read, tesseract, unclear,
+# exp_kind, tries and ms were for upstream's health reports (this fork keeps them, unsent): how the EXP look went (read, tesseract, unclear,
 # not_found, covered or no_window), which other readers tried during the look as (part, worked) pairs, and
 # how long the look took in milliseconds
 # shadow and v2_at are for shadow mode (shadow.py): (what happened, v2's milliseconds), and (key, box) when reader v2
@@ -4294,18 +4135,12 @@ class AutoLog:
     def unshared_runs(self):
         """Finished runs (exactly as the overlay saved them) not shared yet: only clean ones
         (no shop, storage or trade window seen, no EXP estimated from a % alone, a party size that was read), with
-        a known level, not waiting for a look."""
+        a known level, not waiting for a look. (Kept as upstream has it: this fork never sends them anywhere, but the
+        tests use it to check which runs are clean.)"""
         return [r for r in self.runs if not r.get("shared") and not r.get("window") and not r.get("pending")
                 and not r.get("estimated") and not r.get("party_unread") and not r.get("no_reset")
                 and r.get("level_start") is not None and r.get("level_end") is not None
                 and self.sealed(r, _SEALED_RUN)][:50]
-
-    def mark_shared(self, started):
-        def apply():
-            for r in self.runs:
-                if r.get("started") in started:
-                    r["shared"] = True
-        self._change(apply)
 
     def seconds_left(self, now):
         return None if self.start is None else max(0.0, LOG_BLOCK - (now - self.start))
@@ -4443,8 +4278,7 @@ class AutoLog:
         sizes shown as one line). An empty note takes it off. Returns True if anything changed.
 
         A note only ever lives in this log file, on this PC. It isn't one of the sealed fields,
-        so a line stays as trusted as it was, and it's never part of a run: what's shared with
-        the stats site is made from the runs alone (see post_runs)."""
+        so a line stays as trusted as it was, and it's never part of a run."""
         keys = {self.key(e) for e in entries}
         text = clean_note(text)[:NOTE_MAX]
 
@@ -4517,7 +4351,6 @@ def fmt_num(n):
     return "—" if n is None else f"{n:,.0f}"
 
 
-REPORT_REDDIT = "https://www.reddit.com/user/Lurkerdesune/"      # where a Send report's number can be given for a private reply
 POTION_UNSEEN_AFTER = 60        # seconds tracking runs without a look at the potion bar before the cost line says so
 REPORT_SCREEN_SECONDS = 300     # a bug report's whole-game picture is deleted this long after the report page opened
 
@@ -4655,10 +4488,6 @@ class App:
         self.note = None
         self.last_logged = None
         self.skip_log = False               # "Don't log" is on: this run isn't logged
-        self._sharing, self._next_share = False, 0.0       # sending runs to the site
-        self.healthlog = healthlog.HealthLog(HEALTH_PATH)   # counts for the daily health report
-        self._health_sending, self._health_at, self._health_snap_at = False, None, 0.0
-        self._health_monitors, self._health_errors = [], {}
         self.job = None                     # the class, from the status bar
         self.map_read = None                # the map name exactly as read
         self.map_hidden, self.map_back_at = False, None     # the minimap's name out of sight for a few seconds
@@ -4740,9 +4569,7 @@ class App:
         self._worker_thread.start()
         root.after(200, self._pump)
         root.after(500, self._refresh)
-        if self.cfg["check_updates"]:
-            self.check_updates()                       # only now, when it starts
-        root.after(1500, self._first_run)              # (once: the compact shape or what's new, then the sharing question)
+        root.after(1500, self._first_run)              # (once: the compact shape or what's new)
 
     # ---- the main window
     def _build_view(self):
@@ -5179,7 +5006,7 @@ class App:
         if e:
             if self.autolog.edited(e):
                 self.log_hint.set("This line was changed outside the overlay (it no longer matches "
-                                  "the overlay's seal), so it won't count toward the best-maps site.")
+                                  "the overlay's seal).")
                 return
             runs = self.autolog.runs_done(e["map"], e.get("party"), e.get("class"), e["date"])
             hours = (f" Includes {runs} full {RUN_SECONDS // 60}-minute run{'s' * (runs != 1)} of non-stop farming."
@@ -5333,9 +5160,8 @@ class App:
         tk.Label(body, text="Pausing also restarts the 5-minute log timer.", **dim).pack(anchor="w", pady=(px(5), 0))
         no_reset = self._no_reset_var = tk.BooleanVar(value=bool(self.cfg["no_reset"]))
         self._switch(body, "No Reset: keep the numbers across maps", no_reset).pack(anchor="w", pady=(px(10), 0))
-        tk.Label(body, text="For farming that moves between maps. Runs made with it on stay on this PC (they're "
-                            "not sent to the best-maps site).", wraplength=wrap, justify="left", **dim).pack(
-            anchor="w", pady=(px(4), 0))
+        tk.Label(body, text="For farming that moves between maps: changing maps doesn't start new numbers.",
+                 wraplength=wrap, justify="left", **dim).pack(anchor="w", pady=(px(4), 0))
 
         self._section(body, "Window")
         transparency = tk.IntVar(value=int(self.cfg["transparency"]))
@@ -5417,18 +5243,10 @@ class App:
                             "from the status bar and estimates EXP from it. Typing it in is only a last resort.",
                  wraplength=wrap, justify="left", **dim).pack(anchor="w", pady=(px(4), 0))
 
-        self._section(body, "Updates and sharing")
-        updates = tk.BooleanVar(value=bool(self.cfg["check_updates"]))
-        self._switch(body, "Check for updates when it starts", updates).pack(anchor="w")
-        sharing = tk.BooleanVar(value=bool(self.cfg.get("share_runs")))
-        self._switch(body, f"Share my {RUN_SECONDS // 60}-minute runs, anonymously", sharing).pack(anchor="w", pady=(px(6), 0))
-        tk.Label(body, text="They feed the best-maps site. Your notes and log never leave this PC.", wraplength=wrap,
-                 justify="left", **dim).pack(anchor="w", pady=(px(4), 0))
-        health_on = self._health_on = tk.BooleanVar(value=self.cfg.get("share_health") is True)
-        self._switch(body, "Send daily health reports", health_on).pack(anchor="w", pady=(px(6), 0))
-        tk.Label(body, text="A short anonymous summary of how well the overlay reads your game, so problems get "
-                            "fixed. Numbers only: no names, chat, maps or pictures.", wraplength=wrap,
-                 justify="left", **dim).pack(anchor="w", pady=(px(4), 0))
+        self._section(body, "Offline")
+        tk.Label(body, text="This copy never goes online by itself: no update check, no sharing, no reports. "
+                            "Your log and notes never leave this PC. Best maps and Releases open in your browser.",
+                 wraplength=wrap, justify="left", **dim).pack(anchor="w")
 
         def apply(*_):
             try:
@@ -5439,15 +5257,9 @@ class App:
                 self.cfg["gap_seconds"] = self.autolog.gap = self.session.gap = seconds
             self.cfg["transparency"] = min(MAX_TRANSPARENCY, max(0, int(float(transparency.get()))))
             self.cfg["topmost"] = bool(topmost.get())
-            self.cfg["check_updates"] = bool(updates.get())
             self.cfg["potions_on"] = bool(potions_on.get())
             if bool(no_reset.get()) != self.cfg["no_reset"]:
                 self.set_no_reset(no_reset.get())
-            if bool(sharing.get()) != bool(self.cfg.get("share_runs")):
-                self.cfg["share_runs"] = bool(sharing.get())
-                self.share_runs()
-            if bool(health_on.get()) != (self.cfg.get("share_health") is True):
-                self.cfg["share_health"] = bool(health_on.get())
             self._apply_window_settings()
             w.attributes("-topmost", self.cfg["topmost"])
             scale = int(size.get().rstrip("%"))
@@ -5457,7 +5269,7 @@ class App:
                 self.root.after(60, self._reopen_settings)        # (drawn again at the new size)
             save_config(self.cfg)
 
-        for var in (gap, transparency, topmost, updates, sharing, health_on, size, potions_on, no_reset):
+        for var in (gap, transparency, topmost, size, potions_on, no_reset):
             var.trace_add("write", apply)
         self._hotkey_settings(body)
         buttons = tk.Frame(body, bg=BG)
@@ -5466,8 +5278,8 @@ class App:
                command=w.destroy, bg=BG).pack(side="right")
         Button(buttons, th, text="Data folder", kind="secondary", width=104, height=38, radius=11, size=12,
                command=self.open_data_folder, bg=BG).pack(side="left")
-        Button(buttons, th, text="Check for updates", kind="secondary", width=146, height=38, radius=11, size=12,
-               command=lambda: self.check_updates(manual=True), bg=BG).pack(side="left", padx=(px(8), 0))
+        Button(buttons, th, text="Releases", kind="secondary", width=96, height=38, radius=11, size=12,
+               command=lambda: webbrowser.open(RELEASES_PAGE), bg=BG).pack(side="left", padx=(px(8), 0))
         Button(buttons, th, text="Report a bug", kind="secondary", width=116, height=38, radius=11, size=12,
                command=lambda: self.report_bug(w), bg=BG).pack(side="left", padx=(px(8), 0))
         more = tk.Frame(body, bg=BG)
@@ -5718,15 +5530,14 @@ class App:
                 self.stop_evt.wait(WORKER_RETRY_SECONDS)
         self.health.alive = False
 
-    # ---- sharing runs
+    # ---- links
     def open_best_maps(self):
-        """The best-maps site, already showing the maps for this level, party size and class."""
+        """The best-maps site in the browser, already showing the maps for this level, party size and class."""
         ask = {k: v for k, v in (("level", self.level), ("party", self.party), ("job", self.job)) if v}
         webbrowser.open(STATS_SITE + ("/?" + urllib.parse.urlencode(ask) if ask else ""))
 
     def _first_run(self):
-        """Once per install or update: a new install picks its compact shape, an update shows what's new. The
-        sharing question comes after."""
+        """Once per install or update: a new install picks its compact shape, an update shows what's new."""
         seen = self.cfg.get("seen_version", "")
         newer = not seen or version_key(VERSION) > version_key(seen)
         # (a Mac test build keeps nothing: "0.9.16-mactest.1" sorts above "0.9.16-beta", so the release would skip
@@ -5735,11 +5546,9 @@ class App:
             self.cfg["seen_version"] = VERSION                 # (first, so a crash in a window can't repeat it)
             save_config(self.cfg)
         if self._fresh and newer:
-            self._shape_picker(self._ask_to_share)
+            self._shape_picker(None)
         elif newer and WHATS_NEW.get(VERSION):
-            self._whats_new(WHATS_NEW[VERSION], self._ask_to_share)
-        else:
-            self._ask_to_share()
+            self._whats_new(WHATS_NEW[VERSION], None)
 
     def _small_window(self, title, then):
         """A window for the one-time messages: like the other dialogs, and `then` runs when it closes."""
@@ -5854,197 +5663,6 @@ class App:
                 show(n, size + 1)
         show(0)
 
-    def _ask_to_share(self):
-        if "share_runs" not in self.cfg:
-            self._ask_run_sharing()
-        self._ask_health()
-
-    def _ask_health(self):
-        """Once: may the overlay send a short anonymous summary of how well it reads the game each day?"""
-        if "share_health" in self.cfg:
-            return
-        yes = messagebox.askyesno(
-            "Help make the overlay more reliable?",
-            "Once a day, send a short anonymous summary of how well the overlay is reading your game "
-            "(for example how often it found the EXP bar, your game's window size and the overlay's "
-            "version), so problems can be fixed even when nobody reports them.\n\n"
-            "Never your character's name, chat, maps, pictures or your log. You can change this any "
-            "time in Settings.", parent=self.root)
-        self.cfg["share_health"] = bool(yes)
-        save_config(self.cfg)
-
-    def _ask_run_sharing(self):
-        yes = messagebox.askyesno(
-            "Help other players pick maps?",
-            "Share your farming, so everyone can see which maps give the most EXP for their "
-            "class and level?\n\n"
-            f"Every {RUN_SECONDS // 60} minutes of non-stop farming is shared: the map, your level, "
-            "class and party size, and the EXP and mesos you got. Never your character's name.\n\n"
-            f"They're combined with other players' on {STATS_SITE.split('//')[1]}. You can change "
-            "this any time in Settings.", parent=self.root)
-        self.cfg["share_runs"] = bool(yes)
-        save_config(self.cfg)
-        self.share_runs()
-
-    def share_runs(self):
-        """Sends finished runs to the stats site in the background (if agreed to)."""
-        self._next_share = time.monotonic() + 1800
-        if not self.cfg.get("share_runs") or self._sharing:
-            return
-        runs = self.autolog.unshared_runs()
-        if not runs:
-            return
-        self._sharing, install = True, self.autolog.install
-
-        def work():
-            try:
-                self.q.put(("shared", post_runs(install, runs)))
-            except Exception:
-                self.q.put(("shared", None))           # offline or the site is down: later
-        threading.Thread(target=work, daemon=True).start()
-
-    # ---- health reports (healthlog.py): numbers only, once a day, only if the player said yes
-    def _count_health(self, r, now):
-        """Counts one look in today's health record. Runs on the main thread, once per Reading, so the
-        categories always add up to the number of looks."""
-        try:
-            last, self._health_at = self._health_at, now
-            rect, gh = self.reader.last_rect, self.reader.gh
-            game = None
-            if rect and gh:
-                game = (rect[2], rect[3], any(rect[2] == w and rect[3] == h for w, h, _ in self._health_monitors), gh)
-            self.healthlog.look(healthlog.kind_of(r), r.percent_only, r.tries, r.ms,
-                                (now - last) if last is not None and self.tracker.running else 0.0, game, r.shadow,
-                                r.ui, r.layout, r.shadows, r.shadow_why, r.filter)
-        except Exception as e:                      # (counting must never keep a reading from being handled)
-            log_error("counting a look for the health report", e)
-
-    def _health_snapshot(self):
-        """What the setup is like today (recorded while the game is there, not when the report is sent)."""
-        screens = []
-        try:
-            with mss.mss() as sct:
-                for m in sct.monitors[1:5]:
-                    dpi = PLATFORM.screen_dpi(m["left"] + m["width"] // 2, m["top"] + m["height"] // 2)
-                    scale = round(dpi / 96 * 100) if dpi else None
-                    screens.append((m["width"], m["height"], scale if scale and 50 <= scale <= 500 else None))
-        except Exception as e:
-            log_error("listing the screens for the health report", e)
-        self._health_monitors = screens
-        capture = self.reader.capture.name
-        self.healthlog.snapshot(VERSION, PLATFORM.version(), screens,
-                                "region" if self.reader.mode == "region" else capture if capture == "window" else "screen",
-                                tesseract_state)
-
-    def _health_tick(self):
-        """Called a few times a second from the refresh: keeps the record up to date and saved, and sends a
-        finished day when it is time (at most one a hour, even across restarts)."""
-        now = time.monotonic()
-        if now >= self._health_snap_at:
-            self._health_snap_at = now + healthlog.SAVE_EVERY
-            self._health_snapshot()
-        try:
-            seen = dict(self.reader.error_types)
-        except RuntimeError:                            # (the reading thread changed it just then: next time)
-            seen = self._health_errors
-        self.healthlog.errors({k: n - self._health_errors.get(k, 0) for k, n in seen.items()})
-        self._health_errors = seen
-        self.healthlog.save(force=False)
-        if self.cfg.get("share_health") is not True or self._health_sending or sharing_blocked():
-            return
-        if healthlog.ensure_id(self.cfg):
-            save_config(self.cfg)
-        due = self.healthlog.due(self.cfg["health_id"])
-        if due is None:
-            return
-        day, body = due
-        self._health_sending = True
-        self.healthlog.attempting()
-
-        def work():
-            try:
-                self.q.put(("health_sent", (day,) + post_health(body)))
-            except Exception:
-                self.q.put(("health_sent", (day, "later", "")))
-        threading.Thread(target=work, daemon=True).start()
-
-    def _health_done(self, day, outcome, detail):
-        self._health_sending = False
-        if outcome == "later" and detail:
-            log_error(f"the site doesn't know the health field {detail} yet, so the report for {day} waits",
-                      ValueError(detail))
-        elif outcome == "bad":
-            log_error(f"the site refused the health report for {day}", ValueError(detail or "unknown field"))
-        elif outcome == "big":
-            log_error(f"the site refused the health report for {day}", ValueError("too large"))
-        self.healthlog.finish(day, outcome)
-
-    # ---- updates
-    def check_updates(self, manual=False):
-        """Asks GitHub for a newer version in the background; the answer comes via _pump."""
-        def work():
-            try:
-                self.q.put(("update", (check_for_update(), manual, None)))
-            except Exception as e:
-                self.q.put(("update", (None, manual, e)))
-        threading.Thread(target=work, daemon=True).start()
-
-    def _show_update(self, found, manual, error):
-        parent = self.settings_win if manual and self.settings_win and self.settings_win.winfo_exists() \
-            else self.root
-        if error is not None:
-            if manual:
-                messagebox.showinfo("Updates", "Couldn't check for updates. Are you connected to the "
-                                    "internet?", parent=parent)
-            return                                      # at start: quietly try again next time
-        if not found:
-            if manual:
-                messagebox.showinfo("Updates", f"You have the latest version (v{VERSION}).", parent=parent)
-            return
-        version, notes = found
-        if not manual and self.cfg.get("skip_version") == version:
-            return
-        w = tk.Toplevel(self.root)
-        w.title("Update available")
-        w.configure(bg=BG, padx=self.theme.px(26), pady=self.theme.px(22))
-        w.resizable(False, False)
-        w.transient(self.root)
-        w.attributes("-topmost", bool(self.cfg["topmost"]))
-        for delay in (0, 150, 800):
-            w.after(delay, lambda: PLATFORM.style_window(w, INK, TEXT_DIM) if w.winfo_exists() else None)
-        th = self.theme
-        tk.Label(w, text=f"v{version} is out", bg=BG, fg=ACCENT, font=th.font("extra", 20)).pack(anchor="w")
-        tk.Label(w, text=f"You have v{VERSION}. Your log, notes and settings are kept when you update.",
-                 bg=BG, fg=DIM, font=th.font("regular", 12)).pack(anchor="w", pady=(2, th.px(14)))
-        tk.Label(w, text="WHAT'S NEW", bg=BG, fg=DIM, font=th.font("semibold", 10)).pack(anchor="w", pady=(0, th.px(6)))
-        box = tk.Frame(w, bg=LIST_BG, highlightthickness=1, highlightbackground=LINE)
-        box.pack(fill="both", expand=True, pady=(0, th.px(16)))
-        text = tk.Text(box, width=62, height=12, wrap="word", bg=LIST_BG, fg=FG, relief="flat",
-                       font=th.font("regular", 12), padx=th.px(12), pady=th.px(10), highlightthickness=0)
-        scroll = ttk.Scrollbar(box, command=text.yview, style="Dark.Vertical.TScrollbar")
-        text.configure(yscrollcommand=scroll.set)
-        text.insert("1.0", notes or "(No details were given for this version.)")
-        text.configure(state="disabled")
-        text.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-        buttons = tk.Frame(w, bg=BG)
-        buttons.pack(fill="x")
-
-        def get_it():
-            webbrowser.open(RELEASES_PAGE)                # always your own releases page
-            w.destroy()
-
-        def skip():
-            self.cfg["skip_version"] = version
-            save_config(self.cfg)
-            w.destroy()
-        Button(buttons, th, text="Get the update", kind="primary", width=140, height=40, radius=12, size=13,
-               command=get_it, bg=BG).pack(side="left")
-        Button(buttons, th, text="Not now", kind="secondary", width=96, height=40, radius=12, size=12,
-               command=w.destroy, bg=BG).pack(side="left", padx=(th.px(8), 0))
-        Button(buttons, th, text="Skip this version", kind="ghost", width=140, height=40, radius=12, size=12,
-               command=skip, bg=BG).pack(side="right")
-
     def _oops(self, what, exc):
         """Something unexpected went wrong: note it in errors.log and keep going."""
         log_error(what, exc)
@@ -6056,22 +5674,11 @@ class App:
             while True:
                 kind, payload = self.q.get_nowait()
                 if kind == "error":
-                    self.healthlog.errors({payload.split(":")[0].strip(): 1})      # (the type's name, never the message)
                     self.recent.add(f"Error reading the screen: {payload}")
                     self.status.set("Something went wrong reading the screen. Trying again... "
                                     "(details are in errors.log: Settings > Open data folder)")
-                elif kind == "update":
-                    self._show_update(*payload)
                 elif kind == "hotkey":
                     self._hotkey(payload)
-                elif kind == "shared":
-                    self._sharing = False
-                    if payload:
-                        self.autolog.mark_shared(payload)
-                elif kind == "health_sent":
-                    self._health_done(*payload)
-                elif kind == "report_sent":
-                    self._report_done(*payload)
                 else:
                     self._handle(payload)
         except queue.Empty:
@@ -6084,7 +5691,6 @@ class App:
 
     def _handle(self, r):
         t, now = self.tracker, time.monotonic()
-        self._count_health(r, now)
         if r.image is not None:
             self.last_capture = r
         if r.mesos_image is not None:
@@ -6172,8 +5778,7 @@ class App:
             status += f"\n{self.note}"
         if r.percent_only and self.name_note:
             status += f"\n{self.name_note}"
-        if self.autolog.settle(now, self.tracker.running, **self.meso.for_log()):
-            self.share_runs()                          # a finished run got its mesos (or went without)
+        self.autolog.settle(now, self.tracker.running, **self.meso.for_log())     # (a finished run gets its mesos)
         stale = self.meso.stale_note(now, self.tracker.running)       # (always asked, it keeps its own time)
         left_out = (self.autolog.alert(now, self.tracker.running) or self.meso.ignored_note(now) or stale
                     or self._net(self.tracker.elapsed())[1])
@@ -6328,7 +5933,6 @@ class App:
     def _log_tick(self, now):
         if not self.tracker.running or self.skip_log or self.in_town:
             return
-        runs = len(self.autolog.runs)
         potions_now = None
         if self.cfg["potions_on"]:
             used = self.session.potions.used
@@ -6337,8 +5941,6 @@ class App:
                                   hidden=self.map_hidden, potions=potions_now,
                                   estimated=self.tracker.estimated and self.tracker.percent_mode, party_read=self.party_read,
                                   **self.meso.for_log())
-        if len(self.autolog.runs) > runs:
-            self.share_runs()                          # a run just finished
         if entry:
             self.last_logged = now
             self._fill_log()
@@ -6474,9 +6076,6 @@ class App:
         self._log_tick(now)
         self.log_status.set(self._log_status_text(now))
         self.reader.own_rect = self._window_rect()
-        if now >= self._next_share:                   # retry runs that couldn't be sent
-            self.share_runs()
-        self._health_tick()
 
     # ---- buttons
     def _hotkey(self, action):
@@ -6671,29 +6270,8 @@ class App:
 
     # ---- bug reports
     def report_bug(self, parent=None):
-        """Asks how to report: straight to the developer (no account) or on GitHub."""
-        parent = parent or self.root
-        th = self.theme
-        w = self._small_window("Report a bug", None)
-        tk.Label(w, text="Report a bug", bg=BG, fg=ACCENT, font=th.font("extra", 20)).pack(anchor="w")
-        tk.Label(w, text="How would you like to report it?", bg=BG, fg=DIM, font=th.font("regular", 12)
-                 ).pack(anchor="w", pady=(2, th.px(14)))
-
-        def pick(then):
-            w.destroy()
-            then(parent)
-        Button(w, th, text="Send to the developer", kind="primary", width=300, height=40, radius=12, size=13,
-               command=lambda: pick(self.send_report), bg=BG).pack(anchor="w")
-        tk.Label(w, text="No account needed. You see exactly what is sent first.", bg=BG, fg=FAINT,
-                 font=th.font("regular", 11)).pack(anchor="w", pady=(2, th.px(12)))
-        Button(w, th, text="Report on GitHub", kind="secondary", width=300, height=40, radius=12, size=13,
-               command=lambda: pick(self._report_on_github), bg=BG).pack(anchor="w")
-        tk.Label(w, text="Needs a free GitHub account. You can add pictures.", bg=BG, fg=FAINT,
-                 font=th.font("regular", 11)).pack(anchor="w", pady=(2, th.px(12)))
-        Button(w, th, text="Cancel", kind="secondary", width=96, height=36, radius=10, size=12,
-               command=w.destroy, bg=BG).pack(anchor="e")
-        self._report_choice = w
-        return w
+        """Report a bug: the only way in this fork is a GitHub issue the player submits in the browser."""
+        self._report_on_github(parent)
 
     def _report_on_github(self, parent=None):
         """Opens a new GitHub issue in the browser, filled in with what the tracker knows, and
@@ -6737,142 +6315,6 @@ class App:
             (DATA_DIR / "bug-report-game.jpg").unlink(missing_ok=True)
         except Exception as e:
             log_error("deleting the bug report's game picture", e)
-
-    def _report_details(self):
-        """The bug report's details text, scrubbed: the same words go to GitHub and to Send report."""
-        facts = self._report_facts()
-        self._report_facts_cache = facts
-        return self._private(report.details(facts))
-
-    def send_report(self, parent=None):
-        """The Send report dialog: the player types what went wrong, sees exactly what will be sent
-        (text only), and the overlay posts it to the stats site."""
-        th = self.theme
-        try:
-            details = self._report_details()
-        except Exception as e:
-            log_error("collecting the details for Send report", e)
-            details = ""
-        w = self._small_window("Send to the developer", None)
-        w.details = details
-        tk.Label(w, text="Send to the developer", bg=BG, fg=ACCENT, font=th.font("extra", 20)).pack(anchor="w")
-        tk.Label(w, text="What went wrong?", bg=BG, fg=FG, font=th.font("semibold", 12)
-                 ).pack(anchor="w", pady=(th.px(10), th.px(4)))
-        box = tk.Frame(w, bg=LIST_BG, highlightthickness=1, highlightbackground=LINE)
-        box.pack(fill="x")
-        w.message = tk.Text(box, width=58, height=5, wrap="word", bg=LIST_BG, fg=FG, insertbackground=FG, relief="flat",
-                            font=th.font("regular", 12), padx=th.px(10), pady=th.px(8), highlightthickness=0, undo=True)
-        w.message.pack(fill="x")
-        counter = tk.Label(w, text=f"0 / {report.MAX_MESSAGE:,}", bg=BG, fg=FAINT, font=th.font("regular", 10))
-        counter.pack(anchor="e")
-
-        def typed(event=None):
-            text = w.message.get("1.0", "end-1c")
-            counter.configure(text=f"{report.units(text):,} / {report.MAX_MESSAGE:,}",
-                              fg=BAD if report.units(report.clean_message(text)) > report.MAX_MESSAGE else FAINT)
-        w.message.bind("<KeyRelease>", typed)
-        w.counter, w.typed = counter, typed
-        fold = tk.Frame(w, bg=BG)
-        shown = tk.BooleanVar(value=False)
-        w.fold, w.fold_open = fold, shown
-        w.sent_text = tk.Text(fold, width=58, height=10, wrap="word", bg=LIST_BG, fg=DIM, relief="flat",
-                              font=th.font("regular", 10), padx=th.px(10), pady=th.px(8), highlightthickness=0)
-        w.sent_text.insert("1.0", details or "(nothing)")
-        w.sent_text.configure(state="disabled")
-        scroll = ttk.Scrollbar(fold, command=w.sent_text.yview, style="Dark.Vertical.TScrollbar")
-        w.sent_text.configure(yscrollcommand=scroll.set)
-        w.sent_text.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-
-        def toggle():
-            if shown.get():
-                fold.pack_forget()
-            else:
-                fold.pack(fill="x", before=w.note)
-            shown.set(not shown.get())
-            w.fold_button.set(text="What will be sent  ▾" if shown.get() else "What will be sent  ▸")
-        w.fold_button = Button(w, th, text="What will be sent  ▸", kind="secondary", width=200, height=32, radius=10,
-                               size=11, command=toggle, bg=BG)
-        w.fold_button.pack(anchor="w", pady=(th.px(8), th.px(6)))
-        w.note = tk.Label(w, text="No pictures are sent. To add a picture, use Report on GitHub.", bg=BG, fg=FAINT,
-                          font=th.font("regular", 11), wraplength=th.px(520), justify="left")
-        w.note.pack(anchor="w")
-        w.status = tk.Label(w, text="", bg=BG, fg=DIM, font=th.font("regular", 11), wraplength=th.px(520), justify="left")
-        w.status.pack(anchor="w", pady=(th.px(6), 0))
-        buttons = tk.Frame(w, bg=BG)
-        buttons.pack(fill="x", pady=(th.px(10), 0))
-        w.buttons = buttons
-        w.cancel_button = Button(buttons, th, text="Cancel", kind="secondary", width=96, height=38, radius=11, size=12,
-                                 command=w.destroy, bg=BG)
-        w.cancel_button.pack(side="right")
-        w.send_button = Button(buttons, th, text="Send", kind="primary", width=96, height=38, radius=11, size=12,
-                               command=lambda: self._submit_report(w), bg=BG)
-        w.send_button.pack(side="right", padx=(0, th.px(8)))
-        self._report_window = w
-        w.message.focus_set()
-        return w
-
-    def _submit_report(self, w):
-        """Send was clicked: check the text and the daily limit, then post in the background."""
-        def say(text, bad=True):
-            w.status.configure(text=text, fg=BAD if bad else GOOD)
-        message = w.message.get("1.0", "end-1c")
-        problem = report.message_problem(message)
-        if problem:
-            return say(problem)
-        if reports_sent_today(self.cfg) >= MAX_REPORTS_PER_DAY:
-            return say("You've sent 3 reports today. Please try again tomorrow, or use Report on GitHub.")
-        if sharing_blocked():
-            return say("Sending is off while testing.")
-        if healthlog.ensure_id(self.cfg):
-            save_config(self.cfg)
-        body = report.report_body(self.cfg["health_id"], VERSION, message, w.details)
-        w.send_button.set(enabled=False)
-        say("Sending...", bad=False)
-
-        def work():
-            try:
-                outcome = post_report(body)
-            except Exception:
-                outcome = "later"
-            self.q.put(("report_sent", (w, outcome)))
-        threading.Thread(target=work, daemon=True).start()
-
-    def _report_done(self, w, outcome):
-        """The site answered a Send report."""
-        if not w.winfo_exists():
-            if outcome == "ok":
-                self._count_report()
-            return
-        texts = {"limit": "You've sent 3 reports today. Please try again tomorrow, or use Report on GitHub.",
-                 "message": "Please leave out links.",
-                 "bad": "The site couldn't take this report. Please use Report on GitHub instead.",
-                 "later": "Couldn't send it. Are you connected to the internet?"}
-        if outcome == "ok":
-            self._count_report()
-            n = getattr(outcome, "n", None)
-            w.status.configure(text="Sent, thank you!" + (f" This is report #{n}. Want a reply? Open a GitHub issue or "
-                                                           "message me on Reddit and give the number." if n else ""), fg=GOOD)
-            w.cancel_button.set(text="Close")
-            if n:
-                th = self.theme
-                row = tk.Frame(w, bg=BG)
-                row.pack(fill="x", pady=(th.px(8), 0), before=w.buttons)
-                for text, url in (("GitHub issues", f"https://github.com/{GITHUB_REPO}/issues"), ("Reddit", REPORT_REDDIT)):
-                    b = Button(row, th, text=text, kind="secondary", width=130, height=34, radius=10, size=11,
-                               command=lambda url=url: webbrowser.open(url), bg=BG)
-                    b.pack(side="left", padx=(0, th.px(8)))
-                    setattr(w, "open_" + text.split()[0].lower(), b)
-            return
-        if outcome == "limit":
-            self.cfg["reports_sent"] = {"day": healthlog.utc_day(time.time()), "n": MAX_REPORTS_PER_DAY}
-            save_config(self.cfg)
-        w.status.configure(text=texts.get(outcome, texts["later"]), fg=BAD)
-        w.send_button.set(enabled=True)
-
-    def _count_report(self):
-        self.cfg["reports_sent"] = {"day": healthlog.utc_day(time.time()), "n": reports_sent_today(self.cfg) + 1}
-        save_config(self.cfg)
 
     @staticmethod
     def _private(text, limit=report.MAX_DETAILS):
@@ -6936,8 +6378,7 @@ class App:
             "mesos": fmt_num(self.meso.value) if self.meso.value is not None else None, "tracking": bool(self.session.on),
             "tracker": f"paused: {self.session.waiting or 'no'}, gained {fmt_num(t.gained)} EXP in {fmt_dur(t.elapsed())}",
             "settings": {"mode": self.reader.mode, **{k: self.cfg.get(k) for k in ("gap_seconds", "transparency", "topmost", "ui_scale",
-                                                      "compact", "hotkeys_on", "share_runs", "check_updates")},
-                         "share_health": self.cfg.get("share_health"), "health_last_sent": self.healthlog.last_sent or None},
+                                                      "compact", "hotkeys_on")}},
             "timeline": [self._private(x) for x in self.recent.lines()], "errors": errors,
         }
 
@@ -7102,7 +6543,6 @@ class App:
             log_error("saving the log size", e)
         self.cfg["pos"] = [self.root.winfo_x(), self.root.winfo_y()]
         save_config(self.cfg)
-        self.healthlog.save()
         self.root.destroy()
 
 

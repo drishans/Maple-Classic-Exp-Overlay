@@ -1,5 +1,8 @@
-"""Windows: the game window is found by its window class (or title and program name) with
-user32, and positions are in physical pixels (the process is made DPI aware at start)."""
+"""Windows: the game window is found by its window class alone with user32, and positions are in
+physical pixels (the process is made DPI aware at start).
+
+The offline fork never opens a handle to another process (upstream asked Windows for the game's
+program name as a fallback): only window classes, titles and positions are looked at."""
 import ctypes
 import os
 import platform
@@ -30,10 +33,6 @@ _GetClientRect = _api(_user32.GetClientRect, wintypes.BOOL, wintypes.HWND, ctype
 _ClientToScreen = _api(_user32.ClientToScreen, wintypes.BOOL, wintypes.HWND, ctypes.POINTER(wintypes.POINT))
 _GetWindowThreadProcessId = _api(_user32.GetWindowThreadProcessId, wintypes.DWORD,
                                  wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
-_OpenProcess = _api(_kernel32.OpenProcess, wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-_QueryFullProcessImageName = _api(_kernel32.QueryFullProcessImageNameW, wintypes.BOOL, wintypes.HANDLE,
-                                  wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
-_CloseHandle = _api(_kernel32.CloseHandle, wintypes.BOOL, wintypes.HANDLE)
 _GetAncestor = _api(_user32.GetAncestor, wintypes.HWND, wintypes.HWND, wintypes.UINT)
 _GetWindowRect = _api(_user32.GetWindowRect, wintypes.BOOL, wintypes.HWND, ctypes.POINTER(wintypes.RECT))
 _ShowWindow = _api(_user32.ShowWindow, wintypes.BOOL, wintypes.HWND, ctypes.c_int)
@@ -48,20 +47,13 @@ _SetTimer = _api(_user32.SetTimer, ctypes.c_size_t, wintypes.HWND, ctypes.c_size
 _GetMessage = _api(_user32.GetMessageW, wintypes.BOOL, ctypes.POINTER(wintypes.MSG), wintypes.HWND,
                    wintypes.UINT, wintypes.UINT)
 
+GAME_CLASS = "MapleStoryClass"       # the game window's class: all that's needed to know it
 
-def _process_name(hwnd):
-    pid = wintypes.DWORD()
-    _GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    handle = _OpenProcess(0x1000, False, pid.value)       # PROCESS_QUERY_LIMITED_INFORMATION
-    if not handle:
-        return ""
-    try:
-        buf = ctypes.create_unicode_buffer(1024)
-        size = wintypes.DWORD(len(buf))
-        ok = _QueryFullProcessImageName(handle, 0, buf, ctypes.byref(size))
-        return os.path.basename(buf.value).lower() if ok else ""
-    finally:
-        _CloseHandle(handle)
+
+def _class_name(hwnd):
+    cls = ctypes.create_unicode_buffer(256)
+    _GetClassName(hwnd, cls, 256)
+    return cls.value
 
 
 def _windows_titled(*prefixes):
@@ -108,9 +100,7 @@ class WindowsHotkeys(Hotkeys):
         _GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         if pid.value == os.getpid():
             return True
-        cls = ctypes.create_unicode_buffer(64)
-        _GetClassName(hwnd, cls, 64)
-        return cls.value == "MapleStoryClass" or _process_name(hwnd) == "maplestory.exe"
+        return _class_name(hwnd) == GAME_CLASS
 
     def _run(self):
         msg, active, was_on = wintypes.MSG(), {}, None    # active: hotkey id -> action
@@ -213,15 +203,9 @@ class WindowsPlatform(Platform):
         found = []
 
         def check(hwnd, _):
-            if _IsWindowVisible(hwnd):
-                cls = ctypes.create_unicode_buffer(256)
-                title = ctypes.create_unicode_buffer(256)
-                _GetClassName(hwnd, cls, 256)
-                _GetWindowText(hwnd, title, 256)
-                if cls.value == "MapleStoryClass" or (
-                        "maple" in title.value.lower() and _process_name(hwnd) == "maplestory.exe"):
-                    rect = self.client_rect(hwnd)
-                    found.append((rect[2] * rect[3] if rect else 0, hwnd))
+            if _IsWindowVisible(hwnd) and _class_name(hwnd) == GAME_CLASS:
+                rect = self.client_rect(hwnd)
+                found.append((rect[2] * rect[3] if rect else 0, hwnd))
             return True
 
         _EnumWindows(_EnumWindowsProc(check), 0)

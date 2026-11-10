@@ -3,7 +3,7 @@
 #
 # Jobs (each one only does its own part):
 #   plan     reads the tag and says what this run makes (release_plan.py): checks the tag against the program's
-#            VERSION and server/src/released.js, or gives a Mac test build its own version.
+#            VERSION, or gives a Mac test build its own version.
 #   build    Windows: tests, builds, signs the .exe once SignPath is set up, keeps the zip. Read-only token.
 #   macos    Mac (Apple Silicon and Intel): builds Tesseract, tests, builds the .dmg, checks it. Read-only token.
 #   release  puts every file together: one SHA256SUMS.txt, a signed attestation for each file (this workflow built
@@ -13,17 +13,16 @@
 #            repo code: the jobs that install packages and run tests can't write a release or sign anything.
 #
 # Tags:
-#   v0.9.16-beta             Windows zip + both Mac .dmg files in one draft release. The tag must match VERSION in
-#                            maple_exp.py, and VERSION must be listed in server/src/released.js.
-#   mac-test-v0.9.16-beta.1  Macs only, a draft PRE-release (never "latest"). The build calls itself 0.9.16-mactest.1
-#                            and sends nothing (maple_exp.sharing_blocked), so a test download can't reach mcwo.app.
+#   v0.9.16-offline.1        Windows zip + both Mac .dmg files in one draft release. The tag must match VERSION in
+#                            maple_exp.py.
+#   mac-test-v0.9.16-beta.1  Macs only, a draft PRE-release (never "latest"). The build calls itself 0.9.16-mactest.1.
 #   "Run workflow" (Actions tab) on a branch: builds and leaves the files on the run's page; no release.
 #
 # The files are kept on the run's page as they are (not wrapped in another zip, which GitHub does to artifacts
 # unless told not to), so the SHA-256 shown there is the file's own SHA-256: the same as SHA256SUMS.txt and the
 # release page.
 #
-# Check a download:   gh attestation verify <the file> --repo beanguri/Maple-Classic-Exp-Overlay
+# Check a download:   gh attestation verify <the file> --repo drishans/Maple-Classic-Exp-Overlay
 #
 # Signing switches on once SignPath has accepted the project: add the secret
 # SIGNPATH_API_TOKEN and the variable SIGNPATH_ORGANIZATION_ID (Settings > Secrets and
@@ -85,11 +84,11 @@ jobs:
         run: choco install tesseract --version 5.5.0.20241111 -y --no-progress
       - name: Tests
         run: |
+          python tests/test_offline.py
           python tests/test_logic.py
           python tests/test_screen.py
           python tests/test_ocr.py
           python tests/test_report.py
-          python tests/test_health.py
           python tests/test_v2.py
           python tests/test_release.py
       - name: Build
@@ -161,11 +160,12 @@ jobs:
       - name: Tests
         run: |
           export PATH="$RUNNER_TEMP/tess/bin:$PATH"
+          python tests/test_offline.py
           python tests/test_logic.py
           python tests/test_ocr.py
           python tests/test_v2.py
           python tests/test_release.py
-      - name: Give the Mac test build its own version (and prove it sends nothing)
+      - name: Give the Mac test build its own version
         if: needs.plan.outputs.kind == 'mactest'
         env:
           TEST_VERSION: ${{ needs.plan.outputs.version }}
@@ -320,13 +320,15 @@ jobs:
           if [ "$KIND" = mactest ]; then
             title="Maple Classic Exp Overlay: Mac test build ${TAG#mac-test-v}"
           else
-            title="Maple Classic Exp Overlay $(echo "$TAG" | sed -E 's/-beta$/ (beta)/')"
+            title="Maple Classic Exp Overlay (offline fork) ${TAG#v}"
           fi
           {
             echo "(Notes to come.)"
+            echo
+            echo "The offline fork of beanguri/Maple-Classic-Exp-Overlay: it never goes online by itself (no update check, no sharing, no reports)."
             if [ "$KIND" = mactest ]; then
               echo
-              echo "**A test download for Mac, not a release.** Not tested by me on a real Mac. It sends nothing: no sharing, no health reports, no update check."
+              echo "**A test download for Mac, not a release.** Not tested on a real Mac."
             fi
             echo
             echo "---"

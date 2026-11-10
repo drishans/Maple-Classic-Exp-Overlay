@@ -101,22 +101,6 @@ check("controller layouts are told apart from keyboard", [potion_bar.is_controll
 check("no picture: the reader says 'not seen', never a guess",
       potion_bar.read_potions(None, 1920, 1080) == potion_bar.NOT_SEEN and not potion_bar.NOT_SEEN.seen)
 
-# ---- the health report contract (the site and the overlay are tested against it; 0.9.13's cases are the ones without "v2:")
-here = Path(__file__).parent
-new = json.loads((here / "health_contract_v2.json").read_text(encoding="utf-8"))
-check("the old contract file is gone (its cases live on in the v2 file)", not (here / "health_contract.json").exists())
-check("contract v2 still has 0.9.13's three valid bodies", [c["name"] for c in new["health_valid"][:3]]
-      == ["full", "minimal, game never found", "mac, scaling unknown, bar never found, region"])
-NEW = ("ui", "shadow_mesos", "shadow_party", "shadow_why")
-for key in NEW:
-    check(f"contract v2 has a valid case with {key}", any(key in c["body"] for c in new["health_valid"]))
-    check(f"contract v2 has invalid cases for {key}", any(c["field"] == key for c in new["health_invalid"]))
-biggest = max((c["body"] for c in new["health_valid"]), key=lambda b: len(json.dumps(b, separators=(",", ":"))))
-check("the biggest valid body fits the site's 4,096-byte cap", len(json.dumps(biggest, separators=(",", ":")).encode()) <= 4096)
-for c in new["health_valid"]:
-    b = c["body"]
-    check(f"'{c['name']}': every new count is at most 'looks'",
-          all(v <= b["looks"] for k in ("ui", "shadow_why") if k in b for v in b[k].values()))
 
 # ---- the glyph engine and the potion count font (ticket 05): counts drawn from the font itself over made-up slots
 import numpy as np  # noqa: E402

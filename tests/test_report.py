@@ -135,9 +135,7 @@ check("the short summary gets one potion line",
       "- Potions: bar seen, keyboard, 1 of 3 counts read" in report.summary(facts(potions=POT))
       and report.summary(facts(potions=POT)).count("Potions") == 1)
 
-# ---- Send report: the scrubber, the typed message, the body
-import json  # noqa: E402
-
+# ---- the scrubber: nothing personal in what's dragged into a GitHub issue
 NAMES = ["Bob", "BOB-PC", "bsmith"]
 nasty = {
     "a Windows path with the user name": (r"Can't open C:\Users\Bob\AppData\Local\x\eng.traineddata now", "eng.traineddata"),
@@ -162,30 +160,6 @@ check("scrub: a short name (under 3 letters) isn't hunted through the text", rep
 check("scrub: the text is capped at 12,000 characters", len(report.scrub("x" * 20000, NAMES)) == 12000)
 check("scrub: a name inside another word is left alone", report.scrub("Bobcat Bob", ["Bob"]) == "Bobcat <you>")
 
-check("a message must have words", report.message_problem("   ") and report.message_problem("") )
-check("a message of 2,000 characters is fine, 2,001 is not", report.message_problem("x" * 2000) is None and report.message_problem("x" * 2001))
-check("links are turned down, like the site does", all(report.message_problem(t) for t in
-      ("see http://a.b", "www.x.org", "join discord.gg/abc", "go to evil.com/x", "HTTPS://X")))
-check("a plain sentence is fine", report.message_problem("It stopped reading after I changed maps.") is None)
-
-contract = json.loads((Path(__file__).parent / "health_contract_v2.json").read_text(encoding="utf-8"))
-for case in contract["report_valid"]:
-    b = case["body"]
-    body = report.report_body(b["id"], b["version"], "  " + b["message"] + " \n", b["details"])
-    check(f"report body: the contract's valid '{case['name']}' is built exactly",
-          body == b and list(body) == ["id", "version", "message", "details"] and report.message_problem(b["message"]) is None)
-base = contract["report_valid"][0]["body"]
-for case in contract["report_invalid"]:
-    change = {k: ("x" * int(v[5:]) if isinstance(v, str) and v.startswith("LONG:") else v) for k, v in case["change"].items()}
-    field = case["field"]
-    if field == "message":
-        ok = report.message_problem(change["message"]) is not None
-    elif field == "details":
-        ok = len(report.report_body(base["id"], base["version"], base["message"], change["details"])["details"]) == 12000
-    else:
-        ok = True                       # id and extra fields can't come from the dialog (the body has exactly four fields)
-    check(f"report body: the contract's invalid '{field}' ({list(change.values())[0] if len(str(change)) < 60 else 'long'}) can't reach the site", ok)
-
 # ---- A05-1: Python writes Windows paths in error messages with doubled backslashes
 for name, text in {
     "a FileNotFoundError message": repr(r"C:\Users\Bob\OneDrive\Desktop\Maple EXP\nope.json"),
@@ -198,30 +172,6 @@ for name, text in {
           not any(x in out for x in ("Bob", "Users", "OneDrive", "Desktop", "FILESRV", "bsmith", "AppData", "Roaming")) and "\\\\" not in out)
 check("scrub: a doubled-backslash path still ends with its file name", report.scrub(repr(r"C:\Users\Bob\x\y.dll"), NAMES).strip("'") == "y.dll")
 check("scrub: limit=None keeps the whole text", len(report.scrub("x" * 20000, NAMES, limit=None)) == 20000)
-
-# ---- A05-2: what the site counts (UTF-16 units for the text, bytes for the whole body)
-WORDS = {"emoji": "\U0001F600", "Chinese": "\u4e2d", "backslashes": "\\", "quotes": '"', "newlines": "\n", "plain": "x"}
-for label, ch in WORDS.items():
-    for msg in ("It stopped.", "It stopped. " + ch * 900):
-        body = report.report_body("0123456789abcdef", "0.9.14-beta", msg, ch * 12000)
-        size = len(report.encode_body(body))
-        check(f"Send report: {label} details (message {len(msg)} chars) make a body of {size} bytes, within the site's 16,384",
-              size <= 16384 and body["message"] == msg.strip(report.JS_SPACE) and report.message_problem(msg) is None)
-        check(f"Send report: {label} details are cut to what fits, never emptied ({len(body['details'])} chars kept)",
-              len(body["details"]) > 1000)
-check("Send report: a message of 1,500 emoji (3,000 units on the site) is turned down", report.message_problem("\U0001F600" * 1500) is not None)
-check("Send report: 1,000 emoji (2,000 units) is fine", report.message_problem("\U0001F600" * 1000) is None)
-check("Send report: a message of only a zero-width no-break space is empty, like the site says",
-      report.message_problem("\ufeff") is not None and report.message_problem(" \ufeff\u00a0 ") is not None)
-check("Send report: a message the site would turn down for its size is turned down here first",
-      report.message_problem("\x01" * 2000) is not None)
-body = report.report_body("0123456789abcdef", "0.9.14-beta", "\ufeff It stopped.\u3000", "d")
-check("Send report: the message is trimmed the way the site trims it", body["message"] == "It stopped.")
-body = report.report_body("0123456789abcdef", "0.9.14-beta", "ok", "\U0001F600" * 7000)
-check("Send report: details are never over 12,000 UTF-16 units", len(body["details"].encode("utf-16-le")) // 2 <= 12000)
-body = report.report_body("0123456789abcdef", "0.9.14-beta", "ok", "e\u0301" * 5000)
-check("Send report: the body is real UTF-8 that decodes back to the same text",
-      json.loads(report.encode_body(body).decode("utf-8")) == body)
 
 print("\nALL PASSED" if not failures else f"\n{failures} FAILED")
 sys.exit(1 if failures else 0)

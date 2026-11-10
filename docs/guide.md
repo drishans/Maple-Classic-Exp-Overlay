@@ -29,7 +29,7 @@ Within a few seconds it shows your level and how much EXP you have. The per-hour
 | **Start / Pause / Resume** | Starts tracking. **Pause** stops it until you press **Resume**. |
 | **Reset** (the round arrow) | Starts a new session from zero, and looks for the minimap, inventory and party list again (handy after moving them around) |
 | **Log this run** (switch) | Turn it off to keep the current run out of the log, for example while you're testing a map or waiting for your party. Everything is still shown on screen. It turns itself back on when you leave the map or stop getting EXP, so your next run is logged as usual. |
-| **No Reset** (switch) | For farming that moves between maps: changing maps no longer pauses or starts new numbers (a break with no EXP still pauses). It stays on until you turn it off. Runs made with it on stay on your PC: they're never shared with the best-maps site. |
+| **No Reset** (switch) | For farming that moves between maps: changing maps no longer pauses or starts new numbers (a break with no EXP still pauses). It stays on until you turn it off. |
 | **Details** | Shows or hides the extra numbers (gained, current, mesos, elapsed) |
 | **...** (More) | **Select area** lets you drag a box around the EXP numbers, if it ever can't find them (it then turns into **Follow game**, which goes back to finding them by itself). **View capture** shows exactly what it read from your screen. |
 | **Best maps** | Opens the [best-maps website](#best-maps-for-your-class), already showing maps for your level, party size and class |
@@ -69,8 +69,8 @@ Click the **log icon** (top left, next to the status pill) to open the log. It's
 - **Every 5 more minutes** it updates that line, so the numbers get more accurate the longer you farm.
 - **Time** shows how long a line is based on. It grows by 5 minutes with each update.
 - **Class** is read from the status bar (never your character's name). Different classes get separate lines.
-- **15-minute runs:** under the log it also counts toward 15 minutes of non-stop farming on one map with the same party size ("15-min run: 7 of 15 min"). A level-up doesn't stop it; a break, a new map or a new party size starts it over. Finished runs are saved separately and, if you said yes, shared with the [best-maps site](#best-maps-for-your-class) (only clean ones, see there).
-- **Greyed-out lines** were changed outside the overlay. Every line the overlay writes is sealed, so a line edited or added by hand is easy to spot, and it won't count toward the best-maps site. Deleting a line, or renaming a map in the overlay, is fine.
+- **15-minute runs:** under the log it also counts toward 15 minutes of non-stop farming on one map with the same party size ("15-min run: 7 of 15 min"). A level-up doesn't stop it; a break, a new map or a new party size starts it over. Finished runs are saved separately, on your PC only.
+- **Greyed-out lines** were changed outside the overlay. Every line the overlay writes is sealed, so a line edited or added by hand is easy to spot. Deleting a line, or renaming a map in the overlay, is fine.
 - **Taking a break restarts the 5-minute timer.** A break means no EXP for 15 seconds (you can change this in ⚙). Changing maps or party size restarts it too. With **No Reset** on, changing maps doesn't: the line names every map it covered ("Map A/Map B").
 - **Don't want a run logged?** Turn off **Log this run**. It switches back on its own when that run ends.
 - **Solo** means just you. **4ppl** means a party of 4.
@@ -81,7 +81,7 @@ Click the **log icon** (top left, next to the status pill) to open the log. It's
   - **Rename map**, if it read the name wrong (it remembers the fix for next time)
   - **Delete entry**
 - **Playing in a party?** A map's party sizes on one day share one line (e.g. **4–5ppl ▸**), with the numbers over all that time. Click it to see a line for each party size.
-- **Notes:** click a line and write whatever you like about it in the box under the log: the party, the pots, the loot, why you left. A ✎ in the **Note** column marks the lines that have one. Notes save as you type, and **they only ever stay on your PC**, in your log file: they are never shared with the best-maps site (only the finished 15-minute runs are, and they have no notes). Renaming a map, updating the overlay, or farming more on a line keeps its note. Deleting a line deletes its note too, and asks you first.
+- **Notes:** click a line and write whatever you like about it in the box under the log: the party, the pots, the loot, why you left. A ✎ in the **Note** column marks the lines that have one. Notes save as you type, and **they only ever stay on your PC**, in your log file. Renaming a map, updating the overlay, or farming more on a line keeps its note. Deleting a line deletes its note too, and asks you first.
 - **Can't see a whole column?** Drag the lines between the column titles to make columns narrower or wider. While the log is open, you can also make the window bigger by dragging its edge. It remembers both.
 
 ## Settings (⚙)
@@ -95,11 +95,9 @@ Click the **log icon** (top left, next to the status pill) to open the log. It's
 - **Level fallback.** Only for an EXP bar that shows just a percentage, when your level can't be read from the badge: type your level here. See [How accurate is it?](#how-accurate-is-it).
 - **Hotkeys.** Turn them on or off, and change them. See [Hotkeys](#hotkeys).
 - **Always on top of other windows.** Keeps the overlay above the game. It's on by default.
-- **Check for updates when it starts.** On by default. See [Updates](#updates).
-- **Share my 15-minute runs.** See [Best maps for your class](#best-maps-for-your-class).
-- **Send daily health reports.** Once a day, a short anonymous summary of how well the overlay reads your game. See [Privacy](privacy.md).
-- **Open data folder.** Opens the folder where your log and settings are saved.
-- **Check for updates.** Checks right now.
+- **Offline.** A reminder that this copy never goes online by itself. See [Privacy](privacy.md).
+- **Data folder.** Opens the folder where your log and settings are saved.
+- **Releases.** Opens the download page in your browser, to see if there's a newer version. See [Updates](#updates).
 - **Report a bug.** See below.
 
 ## Net mesos and potions
@@ -112,12 +110,14 @@ Mesos/hr is what you pick up. **Net mesos/hr** takes off what the potions you dr
 - **It counts only while tracking.** Paused or in town, nothing counts. Picking up or buying more potions is never counted as using them.
 - **Prices are the NPC shop prices.** Potions no NPC sells count as free until you type what you pay, in ⚙ under **Settings > Potions > Prices**. You can change shop prices there too.
 - **Don't want it?** Switch it off under **Settings > Potions**. Nothing is counted and no net is shown.
-- **Your potion data never leaves your PC.** It isn't sent to the best-maps website.
+- **Your potion data never leaves your PC.**
 - **Mesos/hr leaves out shop, storage and trade changes,** and your inventory doesn't have to stay open: open it at the start, now and then, and when the overlay asks (for example after a trip to town).
 
 ## Best maps for your class
 
-**[mcwo.app](https://mcwo.app)** shows which maps give the most EXP/hr and mesos/hr for your class and level, solo or in a party, from real hours farmed by players. Click **Best maps** at the top of the overlay to open it, already filled in for you.
+**[mcwo.app](https://mcwo.app)** is the best-maps site run by the author of the original overlay (beanguri). It shows which maps give the most EXP/hr and mesos/hr for your class and level, solo or in a party, from runs that players of the original overlay chose to share. Click **Best maps** at the top of the overlay to open it in your browser, already filled in for you. Your level, party size and class go in the site's address, so the site sees them, but only when you click.
+
+**This copy never shares your runs,** so your farming isn't added to the site.
 
 - **Enter your level and whether you're solo or in a party, then pick your class and path.** Paths are named after their 4th job, like Night Lord or Bishop, and include the jobs before it (Shadower is Bandits, Chief Bandits and Shadowers). Under Lv 30 you're still 1st job, so Path is greyed out and you see what every player of your class gets.
 - **Around your level** starts at 3 levels either way. If a map doesn't have enough players that close, it widens to 5 levels, and the row says so ("wider range"). Parties of any size count together.
@@ -128,10 +128,7 @@ Mesos/hr is what you pick up. **Net mesos/hr** takes off what the potions you dr
 
 ![The best-maps website, with a map's details open](screenshot-site.png)
 
-- **It's built from clean 15-minute runs:** 15 minutes of non-stop farming on one map with the same party size. The log shows your progress ("15-min run: 7 of 15 min"). For the site, 15 seconds without EXP ends a run (whatever your log's setting), a run where a shop, storage or trade window was open is never shared, and a run is shared only once the overlay has read your party size.
-- **Mesos only when they can be trusted:** a run is sent with mesos only if you looked at your inventory at the start and within 30 seconds after the end. Otherwise it is sent with EXP only. If you pause right after a run, the overlay may ask you to open the inventory.
-- **Sharing is your choice.** The first time you start the overlay, it asks whether to share your runs. You can change it any time in ⚙.
-- **What's shared:** the map, your level, class and party size, the EXP and mesos you got (EXP only if the mesos couldn't be trusted), and a random ID for your copy of the overlay. Never your character's name, and never anything about potions.
+- **It's built from clean 15-minute runs:** 15 minutes of non-stop farming on one map with the same party size, with no shop, storage or trade window open.
 - **Keeping it honest:** the site uses the typical (median) run, counts each player once, leaves out runs far from what other players get there, a new player's runs only count after 24 hours and 4 runs, and a map is only ranked once 3 different players have farmed it (before that, it's early data: hidden unless you untick **Hide early data**, and greyed out). Every player's typical run is a dot on the chart, so anything odd is easy to spot.
 
 ## How accurate is it?
@@ -144,7 +141,7 @@ It double-checks everything it reads before counting it:
 - **Dying:** the EXP you lose isn't taken off your EXP/hr. It says how much you lost, then carries on from there.
 - **The game's "Default Ratio (Filter Applied)":** the overlay notices by itself when this setting is on (after a few seconds), and reads the EXP number, party size, map name, mesos and potion counts the way the game draws them with it.
 - **When in doubt, it waits.** If it can't read something clearly, it skips it instead of guessing.
-- **A bar with only a percentage:** past about Lv 57 the game stops showing the EXP number. The overlay then reads your level from the orange **LV** badge and works EXP out from it, so those numbers are estimates and show a ≈. If the badge can't be read it uses your level from before (only for the same character), or you can type it in Settings. These estimates are never shared with the best-maps website.
+- **A bar with only a percentage:** past about Lv 57 the game stops showing the EXP number. The overlay then reads your level from the orange **LV** badge and works EXP out from it, so those numbers are estimates and show a ≈. If the badge can't be read it uses your level from before (only for the same character), or you can type it in Settings.
 
 Every version is tested against thousands of misread numbers, and against real screenshots of the game pasted over many different backgrounds at different window sizes.
 
@@ -168,22 +165,20 @@ Every version is tested against thousands of misread numbers, and against real s
 | "This window is covering..." | Drag the overlay to another spot. |
 | Numbers stopped updating, or anything else | Please report it (see below). |
 
-**To report a bug,** click **Report a bug** in ⚙ (or **Something's wrong? Report a bug** in View capture) and pick a way:
-- **Send to the developer** (no account needed): write what went wrong, open *What will be sent* to see exactly what goes (text only, no pictures), and click **Send**. You can send up to 3 a day.
-- **Report on GitHub** (you need a free GitHub account, and you can add pictures):
+**To report a bug,** click **Report a bug** in ⚙ (or **Something's wrong? Report a bug** in View capture). It's done on GitHub (you need a free GitHub account, and you can add pictures); the overlay itself sends nothing:
 1. Your browser opens a bug report on GitHub, already filled in with your version and what the overlay was reading. Nothing personal is included, and nothing is sent until you click Submit.
 2. A folder opens with **bug-report.png** (what the overlay read: the EXP bar, mesos, class and map name) and **bug-report.txt** (how it's doing: your screen and game window size, what it found, what it last said, and any errors). Drag both into the report. Neither has your character name or Windows user name. It also asks if you want to save a small picture of the whole game window: that one can show chat and names, so it's saved only if you say yes, and you choose whether to attach it.
 3. Write a sentence about what went wrong, and click **Submit**. (You need a free GitHub account.)
 
 ## Updates
 
-This is a beta, and I'm still adding features and fixing things.
+This is the offline fork of [beanguri's overlay](https://github.com/beanguri/Maple-Classic-Exp-Overlay), which is a beta.
 
 **New name:** since v0.9.3 it's called Maple Classic Exp Overlay. It used to be Maple EXP/hr. Your log and settings carry over.
 
-**When a new version is out,** the overlay tells you when you start it, and shows what's new. Click **Get the update** to open the download page, or **Not now** / **Skip this version** if you'd rather wait.
+**This copy never checks for updates by itself.** To see if there's a newer version, click **Releases** in ⚙: it opens the [download page](https://github.com/drishans/Maple-Classic-Exp-Overlay/releases/latest) in your browser.
 
-**To update:** download the newest zip (or .dmg on a Mac) from the [download page](https://github.com/beanguri/Maple-Classic-Exp-Overlay/releases/latest) and use it instead of the old folder. Your log, notes and settings stay, because they're saved separately (⚙ → **Open data folder** shows where).
+**To update:** download the newest zip (or .dmg on a Mac) from the [download page](https://github.com/drishans/Maple-Classic-Exp-Overlay/releases/latest) and use it instead of the old folder. Your log, notes and settings stay, because they're saved separately (⚙ → **Open data folder** shows where).
 
 **To remove it:** delete its folder. To also delete your log and settings, delete the folder that **Open data folder** opens.
 

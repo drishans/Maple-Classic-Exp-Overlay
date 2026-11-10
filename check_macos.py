@@ -147,7 +147,6 @@ def check_launch(dmg, seconds=12):
         exe = next((app / "Contents" / "MacOS").iterdir())
         data = Path(tempfile.mkdtemp(prefix="mxp-data-"))
         env = dict(os.environ, MAPLE_EXP_DATA=str(data))
-        env.pop("MAPLE_EXP_ALLOW_SHARE", None)
         out = data.parent / f"{data.name}-stdout.txt"
         with open(out, "w") as log:
             p = subprocess.Popen([str(exe)], env=env, stdout=log, stderr=subprocess.STDOUT)
