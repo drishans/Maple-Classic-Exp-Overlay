@@ -274,6 +274,18 @@ if sys.platform == "win32":
     windows._user32.PostThreadMessageW(hk.thread_id, 0x0312, 1, 0)
     _time.sleep(0.3)
     check("hotkeys are off while another program is in front", pressed == ["start"])
+    started, real_popen, real_startfile = [], windows.subprocess.Popen, windows.os.startfile
+    windows.subprocess.Popen = lambda args, *a, **k: started.append(args)
+    windows.os.startfile = lambda *a, **k: started.append(("startfile",) + a)
+    try:
+        m.PLATFORM.open_folder(Path(r"C:\Users\Some One\AppData\Roaming\MapleEXP"))
+        m.PLATFORM.show_file(r"C:\Users\Some One\AppData\Roaming\MapleEXP\exp_log.json")
+    finally:
+        windows.subprocess.Popen, windows.os.startfile = real_popen, real_startfile
+    explorer = os.path.join(os.environ.get("SystemRoot") or r"C:\Windows", "explorer.exe")
+    check(f"Data folder starts Explorer with the folder (os.startfile opened nothing for it on Windows 11): {started}",
+          started == [[explorer, r"C:\Users\Some One\AppData\Roaming\MapleEXP"],
+                      [explorer, r"/select,C:\Users\Some One\AppData\Roaming\MapleEXP\exp_log.json"]])
 if sys.platform == "darwin":
     from platforms import macos
     W = macos.MacWindow

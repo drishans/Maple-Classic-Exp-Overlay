@@ -265,7 +265,9 @@ class WindowsPlatform(Platform):
             return False
 
     def style_window(self, root, background, text):
-        """A dark title bar in the overlay's own colours (Windows 10 2004+ for dark, 11 for the colours)."""
+        """A dark title bar in the overlay's own colours (Windows 10 2004+ for dark, 11 for the colours), and no
+        transition: Windows cross-fades a window whose frame changes (the log opening, compact mode), which shows
+        it as a light grey, see-through box for a moment."""
         def bgr(hex_):
             r, g, b = (int(hex_[i:i + 2], 16) for i in (1, 3, 5))
             return b << 16 | g << 8 | r
@@ -273,15 +275,20 @@ class WindowsPlatform(Platform):
             root.update_idletasks()
             hwnd = _GetAncestor(root.winfo_id(), 2)
             set_attr = ctypes.windll.dwmapi.DwmSetWindowAttribute
-            for attr, value in ((20, 1), (35, bgr(background)), (34, bgr(background)), (36, bgr(text))):
-                set_attr(hwnd, attr, ctypes.byref(ctypes.c_int(value)), 4)   # dark mode, caption, border, text
+            for attr, value in ((3, 1), (20, 1), (35, bgr(background)), (34, bgr(background)), (36, bgr(text))):
+                set_attr(hwnd, attr, ctypes.byref(ctypes.c_int(value)), 4)   # no transitions, dark, caption, border, text
         except Exception:
             pass
 
+    @staticmethod
+    def _explorer():
+        # (Windows looks for a program given by name in this program's own folder first: the full path can't be swapped)
+        return str(Path(os.environ.get("SystemRoot") or r"C:\Windows") / "explorer.exe")
+
     def open_folder(self, path):
-        os.startfile(path)
+        # Not os.startfile: on a Windows 11 PC it opened nothing for %APPDATA%\MapleEXP, every time and with no error,
+        # while Explorer started with the same folder opened it.
+        subprocess.Popen([self._explorer(), str(path)])
 
     def show_file(self, path):
-        # (Windows looks for a program given by name in this program's own folder first: the full path can't be swapped)
-        explorer = Path(os.environ.get("SystemRoot") or r"C:\Windows") / "explorer.exe"
-        subprocess.Popen([str(explorer), f"/select,{path}"])
+        subprocess.Popen([self._explorer(), f"/select,{path}"])
