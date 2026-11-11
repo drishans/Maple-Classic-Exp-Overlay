@@ -235,6 +235,9 @@ MAX_TRANSPARENCY = 40       # %: more and the window can fade out of sight, with
 # The offline fork never connects to anything itself: no update check, no shared runs, no health or bug reports.
 # These are only links the player clicks, opened in their own browser. Upstream (beanguri's) is the one that sends.
 STATS_SITE = "https://mcwo.app"       # upstream's best-maps site (Best maps opens it with level, party, class in the address)
+MARKET_SITE = "https://maplestory.watch"   # Free Market prices (Potion prices > Look up opens that item's page)
+# (its terms allow a person reading it in their own browser, not a program reading it: so the overlay only opens the
+# page, and never fetches a price itself)
 GITHUB_REPO = "drishans/Maple-Classic-Exp-Overlay"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
@@ -5245,7 +5248,8 @@ class App:
 
         self._section(body, "Offline")
         tk.Label(body, text="This copy never goes online by itself: no update check, no sharing, no reports. "
-                            "Your log and notes never leave this PC. Best maps and Releases open in your browser.",
+                            "Your log and notes never leave this PC. Best maps, Releases and the price Look up links "
+                            "open in your browser.",
                  wraplength=wrap, justify="left", **dim).pack(anchor="w")
 
         def apply(*_):
@@ -5315,11 +5319,14 @@ class App:
         for delay in (0, 150, 800):
             w.after(delay, lambda: PLATFORM.style_window(w, INK, TEXT_DIM) if w.winfo_exists() else None)
         tk.Label(w, text="Mesos each. Leave a box empty to use the shown price; 0 means free.", bg=BG, fg=DIM,
-                 font=th.font("regular", 11)).pack(anchor="w", padx=px(20), pady=(px(16), px(8)))
+                 font=th.font("regular", 11)).pack(anchor="w", padx=px(20), pady=(px(16), 0))
+        tk.Label(w, text="No NPC sells the ones with Look up: it shows their Free Market price on maplestory.watch, "
+                         "in your browser. Type 0 for one you only loot.", bg=BG, fg=DIM, font=th.font("regular", 11),
+                 wraplength=px(380), justify="left").pack(anchor="w", padx=px(20), pady=(px(2), px(8)))
         holder = tk.Frame(w, bg=BG)
         holder.pack(fill="both", expand=True, padx=px(20))
         canvas = tk.Canvas(holder, bg=BG, highlightthickness=0, width=px(380), height=px(420))
-        bar = tk.Scrollbar(holder, orient="vertical", command=canvas.yview)
+        bar = ttk.Scrollbar(holder, orient="vertical", command=canvas.yview, style="Dark.Vertical.TScrollbar")
         canvas.configure(yscrollcommand=bar.set)
         bar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
@@ -5328,7 +5335,7 @@ class App:
         rows.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
         w.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>") if e.widget is w else None)
-        self._price_vars = {}
+        self._price_vars, self._price_links = {}, {}
         for item in table.prices.values():
             if item.get("kind") != "consumable":
                 continue
@@ -5336,16 +5343,32 @@ class App:
             row = tk.Frame(rows, bg=BG)
             row.pack(fill="x", pady=px(2))
             tk.Label(row, text=name, bg=BG, fg=FG, font=th.font("regular", 11), anchor="w", width=24).pack(side="left")
-            default = "no NPC" if item.get("unpriced") else f"{item['price']:,}"
             own = self.cfg["potion_prices"].get(name)
             var = tk.StringVar(value="" if own is None else str(own))
-            tk.Entry(row, textvariable=var, width=8, justify="right", relief="flat", bg=INK, fg=FG,
-                     insertbackground=FG, font=th.font("regular", 11)).pack(side="right")
-            tk.Label(row, text=default, bg=BG, fg=DIM, font=th.font("regular", 11), width=8, anchor="e").pack(side="right")
+            tk.Entry(row, textvariable=var, width=8, justify="right", relief="flat", bd=px(3), bg=LIST_BG, fg=FG,
+                     insertbackground=FG, font=th.font("regular", 11), highlightthickness=1,
+                     highlightbackground=LINE, highlightcolor=ACCENT).pack(side="right", padx=(px(10), 0))
+            if item.get("unpriced"):                   # (no NPC sells it: its price is what players ask)
+                link = tk.Label(row, text="Look up", bg=BG, fg=ACCENT, font=th.font("semibold", 11), width=8,
+                                anchor="e", cursor="hand2")
+                link.bind("<Button-1>", lambda e, n=name: self.look_up_price(n))
+                link.bind("<Enter>", lambda e, lb=link: lb.configure(fg=FG))
+                link.bind("<Leave>", lambda e, lb=link: lb.configure(fg=ACCENT))
+                link.pack(side="right")
+                self._price_links[name] = link
+            else:
+                tk.Label(row, text=f"{item['price']:,}", bg=BG, fg=DIM, font=th.font("regular", 11), width=8,
+                         anchor="e").pack(side="right")
             var.trace_add("write", lambda *_, n=name, v=var: self._set_price(n, v.get()))
             self._price_vars[name] = var
         Button(w, th, text="Close", kind="primary", width=96, height=38, radius=11, size=12,
                command=w.destroy, bg=BG).pack(side="right", padx=px(20), pady=px(14))
+
+    @staticmethod
+    def look_up_price(name):
+        """`name`'s Free Market price (its page on maplestory.watch: the typical price and what sold), in the browser,
+        for the player to type in. Only the item's name goes in the address."""
+        webbrowser.open(f"{MARKET_SITE}/market?" + urllib.parse.urlencode({"item": name}))
 
     def _set_price(self, name, text):
         """A price typed in the prices window: whole mesos, or empty for the default."""
@@ -5988,7 +6011,8 @@ class App:
 
     def _net(self, el):
         """(Net mesos/hr as text, a note or None): mesos/hr less the potion cost per hour. A dash when
-        potions are off, nothing has run yet, or a potion that was used was priced at 0 by the player."""
+        potions are off, nothing has run yet, or a potion that was used has no price to trust (one NPCs sell
+        that the player priced at 0, or one no NPC sells that they haven't priced yet: Prices > Look up)."""
         dash = "—"
         if not self.cfg["potions_on"] or not el:
             return dash, None
@@ -6017,7 +6041,7 @@ class App:
         if self._potion_unseen is not None and now - self._potion_unseen >= POTION_UNSEEN_AFTER:
             hint = "Potion bar not seen"
         else:
-            names = [n for n, count in used.items() if count > 0 and not prices.get(n)]
+            names = prices.missing(used)
             if names:
                 hint = "No price for: " + ", ".join(names[:2]) + (f" +{len(names) - 2}" if len(names) > 2 else "")
         if not hint:
