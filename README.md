@@ -27,6 +27,7 @@ You don't type anything in. It reads all of this from your game screen by itself
 | Daily health report | If you say yes | Never |
 | Report a bug | GitHub, or send straight to the developer | GitHub only, submitted by you in your browser |
 | Finding the game window | Window class, or title plus the game's program name (asks Windows about the game's process) | Window class only (never touches the game's process) |
+| Potions no NPC sells (Mana Elixir, Power Elixir...) | Counted as free until you type a price | Net mesos/hr asks for a price instead of counting them as free. **Look up** next to each one opens its Free Market price on [maplestory.watch](https://maplestory.watch) in your browser; type 0 for one you only loot |
 | Everything else | | The same |
 
 A test ([tests/test_offline.py](tests/test_offline.py)) checks the source on every build: it fails if any network code, process handle or input sending comes back.

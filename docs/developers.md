@@ -47,7 +47,7 @@ GitHub runs the tests on every push ([Tests workflow](../.github/workflows/tests
 
 This is a fork of [beanguri/Maple-Classic-Exp-Overlay](https://github.com/beanguri/Maple-Classic-Exp-Overlay) (MIT). What's different:
 
-- **No network code.** The update check, run sharing (`post_runs`), daily health reports (`healthlog.py`, `post_health`) and Send to the developer (`post_report`) are removed, with their settings and first-run questions. Best maps, Releases and Report a bug only open the browser.
+- **No network code.** The update check, run sharing (`post_runs`), daily health reports (`healthlog.py`, `post_health`) and Send to the developer (`post_report`) are removed, with their settings and first-run questions. Best maps, Releases, Report a bug and the potion prices' Look up (an item's page on maplestory.watch) only open the browser. Don't make the overlay fetch prices itself: maplestory.watch's terms only allow a person reading it in a browser.
 - **No process handle.** The game window is matched by its class alone (upstream also asked Windows for the program name with `OpenProcess`).
 - **No `server/`.** That's upstream's mcwo.app site. `tools/make_maps.py` (from `server/tools/`) now only writes `assets/maps.txt`.
 - **Its own version numbers** (`0.9.16-offline.1` is upstream 0.9.16-beta plus this fork's changes), so it's never taken for an upstream release.

@@ -14,6 +14,8 @@ os.environ["MAPLE_EXP_DATA"] = str(DATA)                    # never touch your r
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import maple_exp as m  # noqa: E402
 assert Path(os.environ["MAPLE_EXP_DATA"]) == m.DATA_DIR, "tests must run on their own temp data folder, never on real data"
+m.PLATFORM.find_game_window = lambda: None      # (the game really running on this PC must not count: the reading thread
+                                                # would read it and overwrite what these tests set up, as on GitHub's runners)
 from screens import keep_windows_there, second_screen, stray_windows  # noqa: E402
 SCREEN = second_screen()                    # every window these tests open goes on the second screen, not the main one
 keep_windows_there(SCREEN)
@@ -809,6 +811,19 @@ table = app._potion_table()
 want = sorted(i["name"] for i in table.prices.values() if i.get("kind") == "consumable")
 check(f"every item the bar counts is listed with a box for its price ({len(app._price_vars)} of {len(want)})",
       sorted(app._price_vars) == want)
+no_npc = sorted(i["name"] for i in table.prices.values() if i.get("kind") == "consumable" and i.get("unpriced"))
+check(f"each item no NPC sells has a Look up link, and only those ({len(app._price_links)}: {', '.join(no_npc)})",
+      sorted(app._price_links) == no_npc and "Mana Elixir" in no_npc and "Red Potion" not in app._price_links)
+looked_up, real_open = [], m.webbrowser.open
+m.webbrowser.open = lambda url, *a, **k: looked_up.append(url)
+try:
+    app._price_links["Fairy's Honey"].event_generate("<Button-1>")
+    pw.update()
+finally:
+    m.webbrowser.open = real_open
+check("Look up opens that item's page on maplestory.watch, and nothing but its name goes in the address",
+      looked_up == ["https://maplestory.watch/market?item=Fairy%27s+Honey"])
+check("...and looking up saves no price (the player types it in)", app.cfg["potion_prices"] == {})
 app._price_vars["Red Potion"].set("70")
 check("a price typed in is saved and used", app.cfg["potion_prices"] == {"Red Potion": 70}
       and app._prices().get("Red Potion") == 70 and json.loads(m.CONFIG_PATH.read_text())["potion_prices"] == {"Red Potion": 70})
@@ -834,16 +849,19 @@ app.settings_win = app.prices_win = None
 # ---- net mesos/hr: mesos/hr minus what the potions cost per hour
 real_per_hour = app.meso.per_hour
 app.meso.per_hour = lambda el: 100000
-app.cfg["potions_on"], app.cfg["potion_prices"] = True, {}
+app.cfg["potions_on"], app.cfg["potion_prices"] = True, {"Sap of Ancient Tree": 0}
 app.session.potions.used = {"Red Potion": 20, "Sap of Ancient Tree": 5}
-check("net mesos/hr is the mesos/hr less the potion cost per hour (20 Red at 50 in an hour)",
+check("net mesos/hr is the mesos/hr less the potion cost per hour (20 Red at 50 in an hour, the Sap looted: 0)",
       app._net(3600) == ("99,000", None))
 check("...over half an hour the cost per hour doubles", app._net(1800) == ("98,000", None))
-app.cfg["potion_prices"] = {"Red Potion": 0}
+app.cfg["potion_prices"] = {"Red Potion": 0, "Sap of Ancient Tree": 0}
 check("a price of 0 on a used NPC-sold potion makes net a dash and asks for a price",
       app._net(3600) == ("—", "Set a price for Red Potion"))
-app.cfg["potion_prices"] = {"Sap of Ancient Tree": 0}
-check("an item no NPC sells at 0 doesn't", app._net(3600) == ("99,000", None))
+app.cfg["potion_prices"] = {}
+check("an item no NPC sells, used before the player priced it, makes net a dash and asks (it isn't counted as free)",
+      app._net(3600) == ("—", "Set a price for Sap of Ancient Tree"))
+app.cfg["potion_prices"] = {"Sap of Ancient Tree": 200}
+check("...with its Free Market price typed in, it's in the cost (5 at 200)", app._net(3600) == ("98,000", None))
 app.cfg["potions_on"] = False
 check("with potions off there's no net to show", app._net(3600) == ("—", None))
 app.cfg["potions_on"], app.cfg["potion_prices"] = True, {}
@@ -918,6 +936,13 @@ app.session.potions.used = {"Mana Elixir": 1, "Power Elixir": 1, "Cider": 1}
 check("...three or more are counted", app._potion_cost_text(1.0) == "No price for: Mana Elixir, Power Elixir +1")
 app.cfg["potion_prices"] = {"Mana Elixir": 700, "Power Elixir": 900, "Cider": 5}
 check("a price the player set removes the hint", app._potion_cost_text(1.0) == "1,605")
+app.cfg["potion_prices"] = {"Mana Elixir": 0, "Power Elixir": 0, "Cider": 0}
+check("...a 0 the player typed for items no NPC sells (looted) too: they're free, a plain 0",
+      app._potion_cost_text(1.0) == "0")
+app.session.potions.used = {"Red Potion": 20}
+app.cfg["potion_prices"] = {"Red Potion": 0}
+check("a 0 typed for a potion NPCs sell still gets the hint (a slip, not free)",
+      app._potion_cost_text(1.0) == "No price for: Red Potion")
 app.cfg["potion_prices"] = {}
 app.session.potions.used = {}
 app.potion_bar = m.potion_bar.NOT_SEEN

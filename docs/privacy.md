@@ -10,4 +10,5 @@ What it keeps, and the only times anything leaves your PC:
 - **Buttons that open your browser** only do it when you click them, and then it's your browser that goes online, not the overlay:
   - **Best maps** opens [mcwo.app](https://mcwo.app) (the original author's site) with your level, party size and class in the address, so that site sees them.
   - **Releases** opens this fork's download page on GitHub.
+  - **Look up** (in Settings > Potions > Prices, next to a potion no NPC sells) opens that item's page on [maplestory.watch](https://maplestory.watch), a fan-made Free Market price site, with only the item's name in the address. The price you type stays here.
   - **Report a bug** opens a new GitHub issue, filled in with your version and what the overlay was reading (file paths cut down to the file name, and your Windows or Mac user name and computer name taken out). Nothing is sent until you click Submit there yourself. It also saves `bug-report.png` and `bug-report.txt` for you to drag in, and, only if you say yes, a picture of the whole game window (which can show chat and names). That picture is deleted after 5 minutes.

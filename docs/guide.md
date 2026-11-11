@@ -108,7 +108,8 @@ Mesos/hr is what you pick up. **Net mesos/hr** takes off what the potions you dr
 - **Both bar styles work:** the keyboard bar and the controller bar (Standard or Cross-Style), with the game's UI Size on Default or Ideal. The overlay recognises which one you have by itself, and you can switch between them while it runs.
 - **If the cost isn't shown,** the overlay says why instead of showing 0: "Potion bar not seen" (it hasn't seen the bar for a minute, for example because something covers it), or "No price for: …" (a potion it counted has no price yet; type one under **Prices**).
 - **It counts only while tracking.** Paused or in town, nothing counts. Picking up or buying more potions is never counted as using them.
-- **Prices are the NPC shop prices.** Potions no NPC sells count as free until you type what you pay, in ⚙ under **Settings > Potions > Prices**. You can change shop prices there too.
+- **Prices are the NPC shop prices.** You can change them in ⚙ under **Settings > Potions > Prices**.
+- **Potions no NPC sells need a price from you.** Until you give one (Mana Elixir, Power Elixir and the like), net mesos/hr shows a dash and the overlay says "Set a price for …", so they're never quietly counted as free. In **Prices**, **Look up** next to each one opens its page on [maplestory.watch](https://maplestory.watch) in your browser, with its typical Free Market price and how many sold (only the item's name goes in the address); type the price in the box. Type 0 for one you only loot.
 - **Don't want it?** Switch it off under **Settings > Potions**. Nothing is counted and no net is shown.
 - **Your potion data never leaves your PC.**
 - **Mesos/hr leaves out shop, storage and trade changes,** and your inventory doesn't have to stay open: open it at the start, now and then, and when the overlay asks (for example after a trip to town).

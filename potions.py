@@ -334,8 +334,19 @@ class Prices:
     def mapping(self):
         return {name: self.get(name) for name in self.items} | {n: p for n, p in self.custom.items() if n not in self.items}
 
+    def missing(self, used):
+        """The used items without a price to trust: one the player set to 0 although NPCs sell it (a slip), or one
+        no NPC sells that the player hasn't priced yet (its Free Market price is theirs to look up; typing 0 says
+        it's free, for one they loot)."""
+        return [n for n, count in used.items() if count > 0 and self._missing(n)]
+
+    def _missing(self, name):
+        no_npc = self.items.get(name, {}).get("unpriced", True)
+        if name in self.custom:
+            return self.custom[name] == 0 and not no_npc
+        return no_npc
+
     def note(self, used):
-        """Asks for a price when something used has none: one the player set to 0 although NPCs sell it.
-        (Items no NPC sells cost 0 by default, and that is fine.)"""
-        names = [n for n in used if self.custom.get(n) == 0 and not self.items.get(n, {}).get("unpriced", True)]
+        """Asks for a price when something used has none to trust (see missing)."""
+        names = self.missing(used)
         return "Set a price for " + ", ".join(names) if names else None

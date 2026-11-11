@@ -445,8 +445,8 @@ check("runs never carry a note, even with notes on the log lines",
       all("note" not in r for r in log.runs) and "MY-PRIVATE-NOTE" not in json.dumps(log.runs))
 src = inspect.getsource(m)
 check("privacy guard: the overlay never goes online itself, and opens the browser in exactly these places (Best maps, "
-      "Releases, Report a bug)",
-      "urlopen(" not in src and "urllib.request" not in src and src.count("webbrowser.open(") == 3
+      "Releases, Report a bug, a potion price's Look up)",
+      "urlopen(" not in src and "urllib.request" not in src and src.count("webbrowser.open(") == 4
       and "requests." not in src and "socket." not in src)
 check("the bug report never includes notes",
       not any(w in inspect.getsource(m.App._report_text) for w in ("note_of", "notes_of", '"note"', "autolog.entries")))
@@ -1714,10 +1714,18 @@ check("a damaged prices entry is nothing", potions.clean_prices([1, 2]) == {} an
 
 used = {"Red Potion": 3, "Sap of Ancient Tree": 2}
 check("a price of 0 the player set on an item NPCs sell, once it's used, asks for a price",
-      potions.Prices(ITEMS, {"Red Potion": 0}).note(used) == "Set a price for Red Potion")
+      potions.Prices(ITEMS, {"Red Potion": 0, "Sap of Ancient Tree": 0}).note(used) == "Set a price for Red Potion")
 check("...but not before it's used", potions.Prices(ITEMS, {"Red Potion": 0}).note({}) is None)
-check("an item with no NPC price used at 0 never asks (default or typed 0)",
-      potions.Prices(ITEMS, {}).note(used) is None and potions.Prices(ITEMS, {"Sap of Ancient Tree": 0}).note(used) is None)
+check("an item no NPC sells, used with no price of the player's yet, asks for one (it isn't counted as free)",
+      potions.Prices(ITEMS, {}).note(used) == "Set a price for Sap of Ancient Tree"
+      and potions.Prices(ITEMS, {}).missing(used) == ["Sap of Ancient Tree"])
+check("...a price the player typed for it, 0 too (one they loot), stops the asking",
+      potions.Prices(ITEMS, {"Sap of Ancient Tree": 900}).note(used) is None
+      and potions.Prices(ITEMS, {"Sap of Ancient Tree": 0}).note(used) is None)
+check("...and an item no NPC sells that wasn't used doesn't ask", potions.Prices(ITEMS, {}).note({"Red Potion": 3}) is None)
+check("an item that isn't in the table at all, used with no price, asks too (nothing knows its price)",
+      potions.Prices(ITEMS, {}).missing({"Mystery Food": 1}) == ["Mystery Food"])
+check("a count of 0 isn't a use", potions.Prices(ITEMS, {"Red Potion": 0}).missing({"Red Potion": 0, "Sap of Ancient Tree": 0}) == [])
 check("two items at 0 are both named",
       potions.Prices(ITEMS, {"Red Potion": 0, "Blue Potion": 0}).note({"Red Potion": 1, "Blue Potion": 1})
       == "Set a price for Red Potion, Blue Potion")
