@@ -7,6 +7,10 @@ py -3 -m pip install -r requirements.txt
 run.bat
 ```
 
+`run.bat` uses the project's own `.venv` if there is one (made with `py -3 -m venv .venv`, then `.venv\Scripts\python.exe -m pip install -r requirements.txt`), else `python` or `py -3`.
+
+Start it from Explorer or your own terminal. A program started from inside a packaged app (one from the Microsoft Store or an MSIX installer, such as some AI coding apps) gets that app's private copy of `%APPDATA%`, so the overlay's data folder ends up under `%LOCALAPPDATA%\Packages\<that app>\LocalCache\Roaming\MapleEXP`, and **Data folder** opens nothing.
+
 **From source on macOS:** `brew install tesseract`, then `python3 -m pip install -r requirements.txt` and `python3 maple_exp.py`. Allow your Terminal (or Python) in Screen Recording instead of the app.
 
 Everything that differs between Windows and macOS (finding the game window, screen scaling, hotkeys, the one-copy-at-a-time lock) is in `platforms/`: one `Platform` interface in `base.py`, one implementation per OS, and `create_platform()` picks the one for the OS it's on.
